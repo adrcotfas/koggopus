@@ -4,6 +4,7 @@
 
 - Kotlin Multiplatform: the same API now runs on iOS (`iosArm64`, `iosSimulatorArm64`,
   `iosX64`), with the native code linked in statically.
+- The decoder can return little-endian bytes: `feedBytes`, and `read` into a `ByteArray`.
 - The Android artifact is now `koggopus-android`. Gradle picks it automatically from the
   `koggopus` coordinate, so dependencies do not need changing.
 

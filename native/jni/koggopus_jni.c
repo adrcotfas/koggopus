@@ -152,6 +152,31 @@ JNIEXPORT jshortArray JNICALL JNI(decoderFeed)(JNIEnv *env, jobject self, jlong 
     return result;
 }
 
+/* decoderFeed, with the samples returned as bytes. The target is little-endian, so this is a plain copy. */
+JNIEXPORT jbyteArray JNICALL JNI(decoderFeedBytes)(JNIEnv *env, jobject self, jlong handle,
+                                                   jbyteArray data, jint offset, jint length) {
+    (void) self;
+    kogg_decoder *dec = (kogg_decoder *) (intptr_t) handle;
+    jbyte *bytes = (*env)->GetByteArrayElements(env, data, NULL);
+    if (!bytes) return NULL;
+    int status = kogg_decoder_feed(dec, (const unsigned char *) bytes + offset, (size_t) length);
+    (*env)->ReleaseByteArrayElements(env, data, bytes, JNI_ABORT);
+    if (status != KOGG_OK) {
+        throw_error(env, status);
+        return NULL;
+    }
+    size_t count;
+    const int16_t *samples = kogg_decoder_take(dec, &count);
+    if (count > INT32_MAX / sizeof(int16_t)) { /* more bytes than a Java array holds */
+        throw_error(env, KOGG_ERR_TOO_LARGE);
+        return NULL;
+    }
+    jsize size = (jsize) (count * sizeof(int16_t));
+    jbyteArray result = (*env)->NewByteArray(env, size);
+    if (result && size > 0) (*env)->SetByteArrayRegion(env, result, 0, size, (const jbyte *) samples);
+    return result;
+}
+
 JNIEXPORT void JNICALL JNI(decoderPush)(JNIEnv *env, jobject self, jlong handle, jbyteArray data,
                                        jint offset, jint length) {
     (void) self;
@@ -174,6 +199,27 @@ JNIEXPORT jint JNICALL JNI(decoderRead)(JNIEnv *env, jobject self, jlong handle,
     (*env)->ReleaseShortArrayElements(env, pcm, samples, 0);
     if (status != KOGG_OK) throw_error(env, status);
     return (jint) count;
+}
+
+/* decoderRead into a byte[]. Returns the number of bytes written. */
+JNIEXPORT jint JNICALL JNI(decoderReadBytes)(JNIEnv *env, jobject self, jlong handle, jbyteArray pcm,
+                                             jint offset, jint length) {
+    (void) self;
+    kogg_decoder *dec = (kogg_decoder *) (intptr_t) handle;
+    /* Decode into a buffer of our own: at an odd offset the array is not aligned for 16-bit samples. */
+    size_t capacity = (size_t) length / sizeof(int16_t);
+    int16_t *samples = malloc(capacity * sizeof(int16_t));
+    if (!samples) {
+        throw_error(env, KOGG_ERR_ALLOC);
+        return 0;
+    }
+    size_t count;
+    int status = kogg_decoder_read(dec, samples, capacity, &count);
+    jsize size = (jsize) (count * sizeof(int16_t));
+    if (size > 0) (*env)->SetByteArrayRegion(env, pcm, offset, size, (const jbyte *) samples);
+    free(samples);
+    if (status != KOGG_OK) throw_error(env, status);
+    return size;
 }
 
 JNIEXPORT jint JNICALL JNI(decoderChannels)(JNIEnv *env, jobject self, jlong handle) {

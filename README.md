@@ -106,6 +106,9 @@ for (chunk in incomingChunks) {
 A single `feed` that would return more than 2^30 samples throws `OggOpusException` and
 discards that audio; `read` has no such limit.
 
+To get the audio as little-endian bytes instead of samples, for a socket or a file, use
+`feedBytes` or pass `read` a `ByteArray`.
+
 ## Threading and errors
 
 Calls on one encoder or decoder are serialised, so it is safe to `close()` an instance
@@ -190,9 +193,7 @@ of checking out a newer release tag and running the tests.
 
 - Watch upstream for fixes: a scheduled job that reports new releases of the three
   bundled libraries.
-- A desktop JVM target.
 - Float PCM.
-- More than two channels.
 - Loss concealment when packets are missing.
 
 ## License

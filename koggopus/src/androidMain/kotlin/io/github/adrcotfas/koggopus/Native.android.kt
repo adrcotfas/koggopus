@@ -29,8 +29,10 @@ internal object Jni {
 
     external fun decoderCreate(sampleRate: Int, channels: Int): Long
     external fun decoderFeed(handle: Long, data: ByteArray, offset: Int, length: Int): ShortArray
+    external fun decoderFeedBytes(handle: Long, data: ByteArray, offset: Int, length: Int): ByteArray
     external fun decoderPush(handle: Long, data: ByteArray, offset: Int, length: Int)
     external fun decoderRead(handle: Long, pcm: ShortArray, offset: Int, length: Int): Int
+    external fun decoderReadBytes(handle: Long, pcm: ByteArray, offset: Int, length: Int): Int
     external fun decoderChannels(handle: Long): Int
     external fun decoderHead(handle: Long): IntArray?
     external fun decoderTags(handle: Long): ByteArray?
@@ -49,6 +51,8 @@ private class JniDecoder(private val handle: Long) : NativeDecoder {
     override fun feed(data: ByteArray, offset: Int, length: Int) = Jni.decoderFeed(handle, data, offset, length)
     override fun push(data: ByteArray, offset: Int, length: Int) = Jni.decoderPush(handle, data, offset, length)
     override fun read(pcm: ShortArray, offset: Int, length: Int) = Jni.decoderRead(handle, pcm, offset, length)
+    override fun feedBytes(data: ByteArray, offset: Int, length: Int) = Jni.decoderFeedBytes(handle, data, offset, length)
+    override fun readBytes(pcm: ByteArray, offset: Int, length: Int) = Jni.decoderReadBytes(handle, pcm, offset, length)
     override fun channels() = Jni.decoderChannels(handle)
     override fun head() = Jni.decoderHead(handle)
     override fun tags() = Jni.decoderTags(handle)
