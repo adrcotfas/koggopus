@@ -1,0 +1,9 @@
+[submodule "native/third_party/opus"]
+	path = native/third_party/opus
+	url = https://github.com/xiph/opus.git
+[submodule "native/third_party/ogg"]
+	path = native/third_party/ogg
+	url = https://github.com/xiph/ogg.git
+[submodule "native/third_party/libopusenc"]
+	path = native/third_party/libopusenc
+	url = https://github.com/xiph/libopusenc.git

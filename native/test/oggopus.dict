@@ -1,0 +1,33 @@
+# libFuzzer dictionary for Ogg Opus streams (RFC 3533, RFC 7845, RFC 6716).
+
+# Page capture pattern, alone and with the version byte that must follow it.
+"OggS"
+"OggS\x00"
+
+# Page header flags: continued packet, first page, last page, first and last.
+"\x01"
+"\x02"
+"\x04"
+"\x06"
+
+# Segment table: 255 carries a packet on, a lower value ends it, 0 ends one whose
+# length is a multiple of 255.
+"\xff"
+"\xff\xff"
+"\xff\x00"
+
+# A granule position of -1: no packet ends on this page.
+"\xff\xff\xff\xff\xff\xff\xff\xff"
+
+# The two header packets, and an OpusHead up to the channel count for mono and stereo.
+"OpusHead"
+"OpusTags"
+"OpusHead\x01\x01"
+"OpusHead\x01\x02"
+
+# Opus packet TOC bytes: 60 ms SILK, 20 ms CELT fullband stereo, and the latter with
+# two frames and with an arbitrary number of frames.
+"\x18"
+"\xfc"
+"\xfd"
+"\xff\x30"

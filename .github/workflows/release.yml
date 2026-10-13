@@ -1,0 +1,35 @@
+name: Release
+
+# Pushing a tag such as v0.1.0 uploads that version to Maven Central. The upload still
+# has to be released by hand in the Central Portal.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Install the reference Opus tools
+        run: sudo apt-get update && sudo apt-get install -y opus-tools
+      - name: Test
+        run: ./gradlew :koggopus:testDebugUnitTest
+      - name: Publish
+        run: ./gradlew :koggopus:publishToMavenCentral -PVERSION_NAME="${GITHUB_REF_NAME#v}" --no-configuration-cache
+        env:
+          ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyId: ${{ secrets.SIGNING_KEY_ID }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_PASSWORD }}
+          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.GPG_KEY_CONTENTS }}

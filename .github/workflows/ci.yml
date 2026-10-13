@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Install the reference Opus tools
+        run: sudo apt-get update && sudo apt-get install -y opus-tools
+      - name: Unit tests and release AAR
+        run: ./gradlew :koggopus:testDebugUnitTest :koggopus:assembleRelease
+      - name: Hostile-input test under sanitizers
+        run: |
+          cmake -S native -B build/sanitize -DKOGG_BUILD_JNI=OFF -DKOGG_BUILD_TESTS=ON \
+            -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER=clang \
+            -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer -O1"
+          cmake --build build/sanitize --target kogg_hostile --parallel
+          build/sanitize/kogg_hostile
+      # A short run on every push: it starts from the generated seeds each time, so it
+      # catches regressions rather than exploring deeply. Longer runs are a local job.
+      - name: Fuzz the decoder for a minute
+        run: |
+          cmake -S native -B build/fuzz -DKOGG_BUILD_JNI=OFF -DKOGG_BUILD_TESTS=ON -DKOGG_BUILD_FUZZER=ON \
+            -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER=clang \
+            -DCMAKE_C_FLAGS="-fsanitize=fuzzer-no-link,address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer -O1"
+          cmake --build build/fuzz --target kogg_hostile kogg_fuzz --parallel
+          mkdir -p build/fuzz/corpus build/fuzz/crashes
+          build/fuzz/kogg_hostile --seeds build/fuzz/corpus
+          build/fuzz/kogg_fuzz -dict=native/test/oggopus.dict -max_len=65536 -max_total_time=60 \
+            -artifact_prefix=build/fuzz/crashes/ build/fuzz/corpus
+      - name: Keep the input that broke the fuzzer
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-crashes
+          path: build/fuzz/crashes/
+          if-no-files-found: ignore
+
+  device:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          arch: x86_64
+          script: ./gradlew :koggopus:connectedDebugAndroidTest :consumer-check:connectedMinifiedAndroidTest
