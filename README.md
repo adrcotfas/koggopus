@@ -16,7 +16,7 @@ end trimming) is handled for you.
 
 ```kotlin
 dependencies {
-    implementation("io.github.adrcotfas:koggopus:<version>")
+    implementation("io.github.adrcotfas:koggopus:0.1.0")
 }
 ```
 
