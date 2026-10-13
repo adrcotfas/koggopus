@@ -138,9 +138,9 @@ cd koggopus
 ./gradlew :consumer-check:connectedMinifiedAndroidTest   # the library inside an R8-shrunk app
 ```
 
-You need the Android SDK with NDK 28.2.13676358, CMake 3.22.1 or later, and a C compiler
+You need the Android SDK with NDK 30.0.16248370, CMake 3.22.1 or later, and a C compiler
 for the build machine; for the iOS targets, a Mac with Xcode. The NDK is not downloaded
-automatically: install it with `sdkmanager "ndk;28.2.13676358"`. Clone with full
+automatically: install it with `sdkmanager "ndk;30.0.16248370"`. Clone with full
 history, as above, because the bundled libraries read their version from their git tags.
 
 The interoperability tests compare against `opusenc`, `opusdec` and `opusinfo` from
