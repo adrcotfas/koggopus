@@ -11,7 +11,8 @@ permissions:
 
 jobs:
   publish:
-    runs-on: ubuntu-latest
+    # macOS, because the iOS libraries can only be built there.
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v7
         with:
@@ -23,10 +24,16 @@ jobs:
           distribution: temurin
           java-version: 21
       - uses: gradle/actions/setup-gradle@v6
+      # The build runs CMake itself, so nothing installs these on demand.
+      - name: Install the NDK and CMake
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+            "ndk;$(sed -n 's/^ndk = "\(.*\)"/\1/p' gradle/libs.versions.toml)" \
+            "cmake;$(sed -n 's/^cmake = "\(.*\)"/\1/p' gradle/libs.versions.toml)"
       - name: Install the reference Opus tools
-        run: sudo apt-get update && sudo apt-get install -y opus-tools
+        run: brew install opus-tools
       - name: Test
-        run: ./gradlew :koggopus:testDebugUnitTest
+        run: ./gradlew :koggopus:testAndroidHostTest :koggopus:iosSimulatorArm64Test
       - name: Publish
         run: ./gradlew :koggopus:publishToMavenCentral -PVERSION_NAME="${GITHUB_REF_NAME#v}" --no-configuration-cache
         env:

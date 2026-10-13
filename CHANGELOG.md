@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Kotlin Multiplatform: the same API now runs on iOS (`iosArm64`, `iosSimulatorArm64`,
+  `iosX64`), with the native code linked in statically.
+- The Android artifact is now `koggopus-android`. Gradle picks it automatically from the
+  `koggopus` coordinate, so dependencies do not need changing.
+
 ## 0.1.0 - 2026-10-13
 
 - First version: `OggOpusEncoder` and `OggOpusDecoder` for Android, built on

@@ -1,6 +1,7 @@
 # koggopus
 
-Streaming Ogg Opus for Kotlin on Android: PCM in, Ogg pages out; Ogg bytes in, PCM out.
+Streaming Ogg Opus for Kotlin Multiplatform, on Android and iOS: PCM in, Ogg pages out;
+Ogg bytes in, PCM out.
 
 koggopus is for live audio, such as sending microphone audio over a network connection or
 playing a stream as it arrives. It bundles the reference [Xiph](https://xiph.org)
@@ -14,15 +15,26 @@ end trimming) is handled for you.
 
 ## Installation
 
+In a Kotlin Multiplatform project, add it to the common source set; in an Android-only
+project, to the module's dependencies:
+
 ```kotlin
-dependencies {
-    implementation("io.github.adrcotfas:koggopus:0.1.0")
+kotlin {
+    sourceSets {
+        commonMain.dependencies {
+            implementation("io.github.adrcotfas:koggopus:0.1.0")
+        }
+    }
 }
 ```
 
-Requires Android 5.0 (API 21) or later. The AAR contains native libraries for
-`arm64-v8a`, `armeabi-v7a`, `x86_64` and `x86`, aligned for 16 KB page sizes, at
-0.3 to 0.5 MB per ABI.
+| Platform | Requirements | What is bundled |
+|---|---|---|
+| Android | API 21 or later | JNI libraries for `arm64-v8a`, `armeabi-v7a`, `x86_64` and `x86`, aligned for 16 KB page sizes, at 0.3 to 0.6 MB per ABI |
+| iOS | iOS 14 or later | Static libraries for `iosArm64`, `iosSimulatorArm64` and `iosX64`, linked into your framework |
+
+The API is the same on both. Nothing else needs installing: the native code is inside
+the published artifacts.
 
 ## Encoding
 
@@ -69,7 +81,7 @@ decoder.close()
 The output layout never changes once it is known. Pass `channels = 1` or `channels = 2`
 to choose it; otherwise the first stream decides and `decoder.channels` reports it. A
 chained stream with a different channel count is converted, so the audio can go to one
-`AudioTrack` throughout. Stereo output is interleaved.
+output, such as an `AudioTrack`, throughout. Stereo output is interleaved.
 
 ### Decoding a bounded amount at a time
 
@@ -111,27 +123,36 @@ so is a comment header larger than 16 MB, in which case `decoder.tags` is null.
 - Mono and stereo only. Surround streams are rejected.
 - 16-bit integer PCM only.
 - No seeking: the decoder reads a stream front to back.
-- Android only. The build also produces a host library for the unit tests, which is not
-  published.
+- Android and iOS only. The build also produces a JNI library for the build machine, to
+  run the tests on; it is not published, so there is no desktop JVM target.
 
 ## Building
 
 ```sh
 git clone --recurse-submodules https://github.com/adrcotfas/koggopus
 cd koggopus
-./gradlew :koggopus:testDebugUnitTest   # unit tests on the host JVM
-./gradlew :koggopus:assembleRelease     # the AAR
-./gradlew :koggopus:connectedDebugAndroidTest   # needs a device or emulator
+./gradlew :koggopus:testAndroidHostTest      # the tests, on the build machine's JVM
+./gradlew :koggopus:iosSimulatorArm64Test    # the same tests on the iOS simulator (macOS)
+./gradlew :koggopus:connectedAndroidDeviceTest   # and on an Android device or emulator
+./gradlew :koggopus:assemble                 # the Android AAR and, on macOS, the iOS libraries
 ./gradlew :consumer-check:connectedMinifiedAndroidTest   # the library inside an R8-shrunk app
 ```
 
-You need the Android SDK with NDK 28.2.13676358 and CMake 3.22.1, and a C compiler for
-the host. The interoperability tests compare against `opusenc`, `opusdec` and `opusinfo`
-from [opus-tools](https://opus-codec.org/downloads/) and are skipped when those are not
+You need the Android SDK with NDK 30.0.16248370, CMake 3.22.1 or later, and a C compiler
+for the build machine; for the iOS targets, a Mac with Xcode. The NDK is not downloaded
+automatically: install it with `sdkmanager "ndk;30.0.16248370"`. Clone with full
+history, as above, because the bundled libraries read their version from their git tags.
+
+The interoperability tests compare against `opusenc`, `opusdec` and `opusinfo` from
+[opus-tools](https://opus-codec.org/downloads/) and are skipped when those are not
 installed.
 
+The Kotlin code is one public API in `commonMain` over a small binding per platform: JNI
+on Android, cinterop on iOS. Gradle runs `native/CMakeLists.txt` once for each Android
+ABI, each iOS target and the build machine.
+
 The native code lives in `native/`: `core/` is plain C over libopusenc, libogg and
-libopus, and `jni/` is a thin binding layer. `native/test/hostile.c` feeds corrupted
+libopus, and `jni/` is the thin binding layer Android uses. `native/test/hostile.c` feeds corrupted
 streams to the decoder and is meant to run under AddressSanitizer:
 
 ```sh
@@ -169,7 +190,7 @@ of checking out a newer release tag and running the tests.
 
 - Watch upstream for fixes: a scheduled job that reports new releases of the three
   bundled libraries.
-- iOS and desktop JVM targets.
+- A desktop JVM target.
 - Float PCM.
 - More than two channels.
 - Loss concealment when packets are missing.

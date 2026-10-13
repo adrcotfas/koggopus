@@ -1,7 +1,5 @@
 package io.github.adrcotfas.koggopus
 
-import java.util.concurrent.locks.ReentrantLock
-import kotlin.concurrent.withLock
 import kotlin.random.Random
 
 /**
@@ -42,10 +40,8 @@ public class OggOpusEncoder(
     serialNumber: Int = Random.nextInt(),
 ) : AutoCloseable {
 
-    // Fair, so close() gets in as soon as the call in progress returns, even if another
-    // thread is calling write() in a tight loop.
-    private val lock = ReentrantLock(true)
-    private var handle: Long
+    private val lock = createLock()
+    private var native: NativeEncoder?
 
     init {
         require(sampleRate > 0) { "sampleRate must be positive" }
@@ -56,10 +52,9 @@ public class OggOpusEncoder(
         val encodedComments = comments.map { (tag, value) ->
             require(tag.isNotEmpty() && '=' !in tag) { "invalid comment tag: $tag" }
             require('\u0000' !in tag && '\u0000' !in value) { "comments must not contain NUL" }
-            "$tag=$value".toByteArray(Charsets.UTF_8)
+            "$tag=$value".encodeToByteArray()
         }
-        NativeLibrary.ensureLoaded()
-        handle = nativeCreate(
+        native = createNativeEncoder(
             sampleRate,
             channels,
             bitrate ?: 0,
@@ -69,7 +64,7 @@ public class OggOpusEncoder(
             (maxBandwidth ?: bandwidthFor(sampleRate)).value,
             pageDurationMs,
             serialNumber,
-            encodedComments.toTypedArray(),
+            encodedComments,
         )
     }
 
@@ -78,7 +73,7 @@ public class OggOpusEncoder(
      * [write] returns the headers ahead of the audio. Once the headers have been returned,
      * by either route, this returns an empty array.
      */
-    public fun headers(): ByteArray = lock.withLock { nativeHeaders(open()) }
+    public fun headers(): ByteArray = lock.withLock { open().headers() }
 
     /**
      * Encodes interleaved samples and returns the pages completed so far.
@@ -87,7 +82,7 @@ public class OggOpusEncoder(
      */
     public fun write(pcm: ShortArray, offset: Int = 0, length: Int = pcm.size - offset): ByteArray {
         checkRange(pcm.size, offset, length, channels)
-        return lock.withLock { nativeWriteShorts(open(), pcm, offset, length / channels) }
+        return lock.withLock { open().write(pcm, offset, length / channels) }
     }
 
     /**
@@ -97,46 +92,27 @@ public class OggOpusEncoder(
      */
     public fun write(pcm16le: ByteArray, offset: Int = 0, length: Int = pcm16le.size - offset): ByteArray {
         checkRange(pcm16le.size, offset, length, 2 * channels)
-        return lock.withLock { nativeWriteBytes(open(), pcm16le, offset, length, length / (2 * channels)) }
+        val pcm = ShortArray(length / 2) { i ->
+            val low = pcm16le[offset + 2 * i].toInt() and 0xFF
+            val high = pcm16le[offset + 2 * i + 1].toInt()
+            ((high shl 8) or low).toShort()
+        }
+        return lock.withLock { open().write(pcm, 0, pcm.size / channels) }
     }
 
     /**
      * Encodes the audio still buffered and returns the remaining pages, the last of which is
      * marked end-of-stream. The encoder accepts no more audio afterwards.
      */
-    public fun finish(): ByteArray = lock.withLock { nativeFinish(open()) }
+    public fun finish(): ByteArray = lock.withLock { open().finish() }
 
     /** Releases native resources. Safe to call more than once. */
     override fun close(): Unit = lock.withLock {
-        if (handle != 0L) {
-            nativeDestroy(handle)
-            handle = 0
-        }
+        native?.destroy()
+        native = null
     }
 
-    private fun open(): Long {
-        check(handle != 0L) { "encoder is closed" }
-        return handle
-    }
-
-    private external fun nativeCreate(
-        sampleRate: Int,
-        channels: Int,
-        bitrate: Int,
-        application: Int,
-        complexity: Int,
-        vbr: Boolean,
-        maxBandwidth: Int,
-        pageMs: Int,
-        serial: Int,
-        comments: Array<ByteArray>,
-    ): Long
-
-    private external fun nativeHeaders(handle: Long): ByteArray
-    private external fun nativeWriteShorts(handle: Long, pcm: ShortArray, offset: Int, frames: Int): ByteArray
-    private external fun nativeWriteBytes(handle: Long, pcm: ByteArray, offset: Int, length: Int, frames: Int): ByteArray
-    private external fun nativeFinish(handle: Long): ByteArray
-    private external fun nativeDestroy(handle: Long)
+    private fun open(): NativeEncoder = checkNotNull(native) { "encoder is closed" }
 }
 
 /** The widest Opus bandwidth that audio sampled at [sampleRate] can fill. */

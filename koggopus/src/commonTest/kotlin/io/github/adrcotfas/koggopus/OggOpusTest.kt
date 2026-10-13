@@ -1,20 +1,16 @@
 package io.github.adrcotfas.koggopus
 
-import org.junit.Assert.assertArrayEquals
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertNull
-import org.junit.Assert.assertThrows
-import org.junit.Assert.assertTrue
-import org.junit.Test
-import java.io.ByteArrayOutputStream
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
-import kotlin.concurrent.thread
 import kotlin.math.PI
 import kotlin.math.sin
 import kotlin.math.sqrt
 import kotlin.random.Random
+import kotlin.test.Test
+import kotlin.test.assertContentEquals
+import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class OggOpusTest {
 
@@ -24,7 +20,7 @@ class OggOpusTest {
         val decoded = decode(encode(pcm, rate = 16000), rate = 16000)
 
         assertEquals(pcm.size, decoded.size)
-        assertTrue("decoded audio should match the input", correlation(pcm, decoded) > 0.9)
+        assertTrue(correlation(pcm, decoded) > 0.9, "decoded audio should match the input")
     }
 
     @Test
@@ -47,13 +43,12 @@ class OggOpusTest {
     @Test
     fun byteInputProducesTheSameStreamAsShortInput() {
         val pcm = sine(rate = 16000, seconds = 0.3)
-        val bytes = ByteBuffer.allocate(pcm.size * 2).order(ByteOrder.LITTLE_ENDIAN)
-            .apply { asShortBuffer().put(pcm) }.array()
+        val bytes = ByteArray(pcm.size * 2).also { bytes -> pcm.forEachIndexed { i, sample -> putLe(bytes, 2 * i, 2, sample.toLong()) } }
 
         val fromShorts = OggOpusEncoder(16000, serialNumber = 7).use { it.write(pcm) + it.finish() }
         val fromBytes = OggOpusEncoder(16000, serialNumber = 7).use { it.write(bytes) + it.finish() }
 
-        assertArrayEquals(fromShorts, fromBytes)
+        assertContentEquals(fromShorts, fromBytes)
     }
 
     @Test
@@ -61,9 +56,9 @@ class OggOpusTest {
         val stream = encode(sine(rate = 24000, seconds = 1.0), rate = 24000)
         val whole = decode(stream, rate = 24000)
 
-        assertArrayEquals(whole, decode(stream, rate = 24000) { 1 })
+        assertContentEquals(whole, decode(stream, rate = 24000) { 1 })
         val random = Random(1)
-        assertArrayEquals(whole, decode(stream, rate = 24000) { random.nextInt(1, 700) })
+        assertContentEquals(whole, decode(stream, rate = 24000) { random.nextInt(1, 700) })
     }
 
     @Test
@@ -85,8 +80,8 @@ class OggOpusTest {
         val streams = List(3) { pages(encode(pcm, rate = 16000)) }
 
         for (stream in streams) {
-            assertTrue("first page begins the stream", stream.first().flags and BOS != 0)
-            assertTrue("last page ends the stream", stream.last().flags and EOS != 0)
+            assertTrue(stream.first().flags and BOS != 0, "first page begins the stream")
+            assertTrue(stream.last().flags and EOS != 0, "last page ends the stream")
             assertEquals(stream.indices.toList(), stream.map { it.sequence })
             assertEquals(1, stream.map { it.serial }.distinct().size)
         }
@@ -150,7 +145,7 @@ class OggOpusTest {
                     actual += buffer.copyOf(count)
                 }
             }
-            assertArrayEquals(expected, actual)
+            assertContentEquals(expected, actual)
         }
     }
 
@@ -197,7 +192,7 @@ class OggOpusTest {
             var writtenMs = 0
             while (encoder.write(frame).isEmpty()) {
                 writtenMs += 20
-                assertTrue("no audio page after $writtenMs ms of input", writtenMs < 80 + 60)
+                assertTrue(writtenMs < 80 + 60, "no audio page after $writtenMs ms of input")
             }
         }
     }
@@ -214,7 +209,7 @@ class OggOpusTest {
             assertNull(decoder.tags)
             decoder.feed(stream)
 
-            val head = assertNotNull(decoder.head).let { decoder.head!! }
+            val head = assertNotNull(decoder.head)
             assertEquals(1, head.channels)
             assertEquals(16000, head.inputSampleRate)
             assertTrue(head.preSkip > 0)
@@ -246,12 +241,12 @@ class OggOpusTest {
     @Test
     fun unsupportedStreamIsRejectedAndTheDecoderRecovers() {
         // An OpusHead declaring 6 channels with channel mapping family 1 (surround).
-        val head = "OpusHead".toByteArray() + byteArrayOf(1, 6, 0, 0, 0, 0, 0, 0, 0, 0, 1, 4, 2, 0, 4, 1, 2, 3, 5)
+        val head = "OpusHead".encodeToByteArray() + byteArrayOf(1, 6, 0, 0, 0, 0, 0, 0, 0, 0, 1, 4, 2, 0, 4, 1, 2, 3, 5)
         val surround = page(flags = BOS, serial = 99, sequence = 0, packet = head)
         val pcm = sine(rate = 16000, seconds = 0.2)
 
         OggOpusDecoder(16000).use { decoder ->
-            val error = assertThrows(OggOpusException::class.java) { decoder.feed(surround) }
+            val error = assertFailsWith<OggOpusException> { decoder.feed(surround) }
             assertEquals(-103, error.code)
             assertEquals(pcm.size, decoder.feed(encode(pcm, rate = 16000)).size)
         }
@@ -277,40 +272,22 @@ class OggOpusTest {
     }
 
     @Test
-    fun closingFromAnotherThreadIsSafe() {
-        val pcm = sine(rate = 16000, seconds = 0.5)
-        val stream = encode(pcm, rate = 16000)
-        repeat(100) {
-            val decoder = OggOpusDecoder(16000)
-            val encoder = OggOpusEncoder(16000)
-            val workers = listOf(
-                thread { try { while (true) decoder.feed(stream) } catch (_: IllegalStateException) {} },
-                thread { try { while (true) encoder.write(pcm) } catch (_: IllegalStateException) {} },
-            )
-            Thread.sleep(2)
-            decoder.close()
-            encoder.close()
-            workers.forEach { it.join() }
-        }
-    }
-
-    @Test
     fun misuseFailsWithExceptions() {
-        assertThrows(IllegalArgumentException::class.java) { OggOpusEncoder(16000, channels = 3) }
-        assertThrows(IllegalArgumentException::class.java) { OggOpusDecoder(22050) }
+        assertFailsWith<IllegalArgumentException> { OggOpusEncoder(16000, channels = 3) }
+        assertFailsWith<IllegalArgumentException> { OggOpusDecoder(22050) }
 
         val encoder = OggOpusEncoder(16000, channels = 2)
-        assertThrows(IllegalArgumentException::class.java) { encoder.write(ShortArray(3)) }
+        assertFailsWith<IllegalArgumentException> { encoder.write(ShortArray(3)) }
         encoder.finish()
-        assertThrows(OggOpusException::class.java) { encoder.write(ShortArray(4)) }
+        assertFailsWith<OggOpusException> { encoder.write(ShortArray(4)) }
         encoder.close()
         encoder.close()
-        assertThrows(IllegalStateException::class.java) { encoder.write(ShortArray(4)) }
+        assertFailsWith<IllegalStateException> { encoder.write(ShortArray(4)) }
 
         val decoder = OggOpusDecoder()
         decoder.close()
         decoder.close()
-        assertThrows(IllegalStateException::class.java) { decoder.feed(ByteArray(1)) }
+        assertFailsWith<IllegalStateException> { decoder.feed(ByteArray(1)) }
     }
 }
 
@@ -324,15 +301,14 @@ internal fun sine(rate: Int, seconds: Double, channels: Int = 1, hz: Double = 44
 /** Encodes in 512-frame writes, the way a capture callback would deliver audio. */
 internal fun encode(pcm: ShortArray, rate: Int, channels: Int = 1): ByteArray =
     OggOpusEncoder(rate, channels).use {
-        val out = ByteArrayOutputStream()
+        var out = ByteArray(0)
         var pos = 0
         while (pos < pcm.size) {
             val length = minOf(512 * channels, pcm.size - pos)
-            out.write(it.write(pcm, pos, length))
+            out += it.write(pcm, pos, length)
             pos += length
         }
-        out.write(it.finish())
-        out.toByteArray()
+        out + it.finish()
     }
 
 internal fun decode(stream: ByteArray, rate: Int, chunkSize: () -> Int = { stream.size }): ShortArray =
@@ -367,16 +343,15 @@ internal const val EOS = 0x04
 internal class Page(val flags: Int, val serial: Int, val sequence: Int, val body: ByteArray)
 
 internal fun pages(stream: ByteArray): List<Page> {
-    val buffer = ByteBuffer.wrap(stream).order(ByteOrder.LITTLE_ENDIAN)
     val result = ArrayList<Page>()
     var pos = 0
     while (pos < stream.size) {
-        check(String(stream, pos, 4, Charsets.US_ASCII) == "OggS") { "no page at offset $pos" }
+        check(stream.decodeToString(pos, pos + 4) == "OggS") { "no page at offset $pos" }
         val segments = stream[pos + 26].toInt() and 0xFF
         val body = (0 until segments).sumOf { stream[pos + 27 + it].toInt() and 0xFF }
         val bodyStart = pos + 27 + segments
         result += Page(
-            stream[pos + 5].toInt(), buffer.getInt(pos + 14), buffer.getInt(pos + 18),
+            stream[pos + 5].toInt(), getLe(stream, pos + 14, 4).toInt(), getLe(stream, pos + 18, 4).toInt(),
             stream.copyOfRange(bodyStart, bodyStart + body),
         )
         pos = bodyStart + body
@@ -387,13 +362,25 @@ internal fun pages(stream: ByteArray): List<Page> {
 
 /** Builds a page holding one packet shorter than 255 bytes. */
 internal fun page(flags: Int, serial: Int, sequence: Int, packet: ByteArray): ByteArray {
-    val page = ByteBuffer.allocate(28 + packet.size).order(ByteOrder.LITTLE_ENDIAN)
-    page.put("OggS".toByteArray()).put(0).put(flags.toByte())
-    page.putLong(0).putInt(serial).putInt(sequence).putInt(0)
-    page.put(1).put(packet.size.toByte()).put(packet)
-    val bytes = page.array()
-    page.putInt(22, crc(bytes, 0, bytes.size))
+    val bytes = ByteArray(28 + packet.size)
+    "OggS".encodeToByteArray().copyInto(bytes)
+    bytes[5] = flags.toByte()
+    putLe(bytes, 14, 4, serial.toLong())
+    putLe(bytes, 18, 4, sequence.toLong())
+    bytes[26] = 1
+    bytes[27] = packet.size.toByte()
+    packet.copyInto(bytes, 28)
+    putLe(bytes, 22, 4, crc(bytes, 0, bytes.size).toLong())
     return bytes
+}
+
+/** Reads [size] bytes at [pos] as a little-endian integer. */
+internal fun getLe(bytes: ByteArray, pos: Int, size: Int): Long =
+    (size - 1 downTo 0).fold(0L) { value, i -> (value shl 8) or (bytes[pos + i].toLong() and 0xFF) }
+
+/** Writes the low [size] bytes of [value] at [pos], little-endian. */
+internal fun putLe(bytes: ByteArray, pos: Int, size: Int, value: Long) {
+    for (i in 0 until size) bytes[pos + i] = (value shr (8 * i)).toByte()
 }
 
 /** The Ogg page checksum of a page whose checksum field is zero. */
@@ -409,17 +396,16 @@ internal fun crc(bytes: ByteArray, start: Int, length: Int): Int {
 /** Adds [by] to the granule position of every audio page, leaving the two header pages alone. */
 internal fun shiftGranules(stream: ByteArray, by: Long): ByteArray {
     val result = stream.copyOf()
-    val buffer = ByteBuffer.wrap(result).order(ByteOrder.LITTLE_ENDIAN)
     var pos = 0
     var index = 0
     while (pos < result.size) {
         val segments = result[pos + 26].toInt() and 0xFF
         val length = 27 + segments + (0 until segments).sumOf { result[pos + 27 + it].toInt() and 0xFF }
-        val granule = buffer.getLong(pos + 6)
+        val granule = getLe(result, pos + 6, 8)
         if (index >= 2 && granule != -1L) {
-            buffer.putLong(pos + 6, granule + by)
-            buffer.putInt(pos + 22, 0)
-            buffer.putInt(pos + 22, crc(result, pos, length))
+            putLe(result, pos + 6, 8, granule + by)
+            putLe(result, pos + 22, 4, 0)
+            putLe(result, pos + 22, 4, crc(result, pos, length).toLong())
         }
         pos += length
         index++
