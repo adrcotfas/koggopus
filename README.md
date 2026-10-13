@@ -190,9 +190,7 @@ of checking out a newer release tag and running the tests.
 
 - Watch upstream for fixes: a scheduled job that reports new releases of the three
   bundled libraries.
-- A desktop JVM target.
 - Float PCM.
-- More than two channels.
 - Loss concealment when packets are missing.
 
 ## License
