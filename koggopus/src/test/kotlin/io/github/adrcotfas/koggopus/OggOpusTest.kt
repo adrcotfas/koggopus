@@ -219,7 +219,9 @@ class OggOpusTest {
             assertEquals(16000, head.inputSampleRate)
             assertTrue(head.preSkip > 0)
             val tags = decoder.tags!!
-            assertTrue(tags.vendor.contains("libopus"))
+            // The versions come from the submodules' git tags at build time. A checkout
+            // without those tags would silently produce "libopus 0, libopusenc unknown".
+            assertEquals("libopus 1.6.1, libopusenc 0.3", tags.vendor)
             assertTrue(tags.comments.containsAll(comments))
         }
     }
