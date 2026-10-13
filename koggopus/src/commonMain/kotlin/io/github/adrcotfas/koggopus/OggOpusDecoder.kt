@@ -1,8 +1,5 @@
 package io.github.adrcotfas.koggopus
 
-import java.util.concurrent.locks.ReentrantLock
-import kotlin.concurrent.withLock
-
 /**
  * Decodes an Ogg Opus stream that arrives in arbitrary chunks into 16-bit PCM.
  *
@@ -26,16 +23,13 @@ import kotlin.concurrent.withLock
  */
 public class OggOpusDecoder(public val sampleRate: Int = 48000, channels: Int? = null) : AutoCloseable {
 
-    // Fair, so close() gets in as soon as the call in progress returns, even if another
-    // thread is calling feed() in a tight loop.
-    private val lock = ReentrantLock(true)
-    private var handle: Long
+    private val lock = createLock()
+    private var native: NativeDecoder?
 
     init {
         require(sampleRate in SUPPORTED_RATES) { "sampleRate must be one of $SUPPORTED_RATES" }
         require(channels == null || channels == 1 || channels == 2) { "channels must be 1, 2 or null" }
-        NativeLibrary.ensureLoaded()
-        handle = nativeCreate(sampleRate, channels ?: 0)
+        native = createNativeDecoder(sampleRate, channels ?: 0)
     }
 
     /**
@@ -52,7 +46,7 @@ public class OggOpusDecoder(public val sampleRate: Int = 48000, channels: Int? =
      */
     public fun feed(bytes: ByteArray, offset: Int = 0, length: Int = bytes.size - offset): ShortArray {
         checkRange(bytes.size, offset, length, 1)
-        return lock.withLock { nativeFeed(open(), bytes, offset, length) }
+        return lock.withLock { open().feed(bytes, offset, length) }
     }
 
     /**
@@ -61,7 +55,7 @@ public class OggOpusDecoder(public val sampleRate: Int = 48000, channels: Int? =
      */
     public fun push(bytes: ByteArray, offset: Int = 0, length: Int = bytes.size - offset) {
         checkRange(bytes.size, offset, length, 1)
-        lock.withLock { nativePush(open(), bytes, offset, length) }
+        lock.withLock { open().push(bytes, offset, length) }
     }
 
     /**
@@ -79,7 +73,7 @@ public class OggOpusDecoder(public val sampleRate: Int = 48000, channels: Int? =
     public fun read(pcm: ShortArray, offset: Int = 0, length: Int = pcm.size - offset): Int {
         checkRange(pcm.size, offset, length, 1)
         require(length >= 2) { "length must be at least 2" }
-        return lock.withLock { nativeRead(open(), pcm, offset, length) }
+        return lock.withLock { open().read(pcm, offset, length) }
     }
 
     /**
@@ -87,45 +81,30 @@ public class OggOpusDecoder(public val sampleRate: Int = 48000, channels: Int? =
      * channel count of the first stream, null until its header has arrived.
      */
     public val channels: Int?
-        get() = lock.withLock { nativeChannels(open()) }.takeIf { it != 0 }
+        get() = lock.withLock { open().channels() }.takeIf { it != 0 }
 
     /** Header of the stream being decoded, or null until it has arrived. */
     public val head: OpusHead?
-        get() = lock.withLock { nativeHead(open()) }?.let { OpusHead(it[0], it[1], it[2], it[3]) }
+        get() = lock.withLock { open().head() }?.let { OpusHead(it[0], it[1], it[2], it[3]) }
 
     /**
      * Comment header of the stream being decoded. Null until it has arrived, and also when
      * the stream's comment header is larger than 16 MB, which is skipped.
      */
     public val tags: OpusTags?
-        get() = lock.withLock { nativeTags(open()) }?.let(::parseOpusTags)
+        get() = lock.withLock { open().tags() }?.let(::parseOpusTags)
 
     /** Number of Opus streams seen so far; more than 1 means the input is chained. */
     public val streamCount: Int
-        get() = lock.withLock { nativeStreamCount(open()) }
+        get() = lock.withLock { open().streamCount() }
 
     /** Releases native resources. Safe to call more than once. */
     override fun close(): Unit = lock.withLock {
-        if (handle != 0L) {
-            nativeDestroy(handle)
-            handle = 0
-        }
+        native?.destroy()
+        native = null
     }
 
-    private fun open(): Long {
-        check(handle != 0L) { "decoder is closed" }
-        return handle
-    }
-
-    private external fun nativeCreate(sampleRate: Int, channels: Int): Long
-    private external fun nativeFeed(handle: Long, data: ByteArray, offset: Int, length: Int): ShortArray
-    private external fun nativePush(handle: Long, data: ByteArray, offset: Int, length: Int)
-    private external fun nativeRead(handle: Long, pcm: ShortArray, offset: Int, length: Int): Int
-    private external fun nativeChannels(handle: Long): Int
-    private external fun nativeHead(handle: Long): IntArray?
-    private external fun nativeTags(handle: Long): ByteArray?
-    private external fun nativeStreamCount(handle: Long): Int
-    private external fun nativeDestroy(handle: Long)
+    private fun open(): NativeDecoder = checkNotNull(native) { "decoder is closed" }
 
     private companion object {
         val SUPPORTED_RATES = listOf(8000, 12000, 16000, 24000, 48000)

@@ -1,0 +1,3 @@
+package = io.github.adrcotfas.koggopus.cinterop
+headers = koggopus.h
+staticLibraries = libkoggcore.a libopusenc.a libopus.a libogg.a

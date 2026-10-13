@@ -61,10 +61,12 @@ if(KOGG_BUILD_JNI)
     target_compile_options(koggopus PRIVATE -Wall -Wextra)
     target_link_libraries(koggopus PRIVATE koggcore)
     if(ANDROID)
-        # Keep the bundled libraries' symbols private and align for 16 KB page sizes.
+        # Keep the bundled libraries' symbols private, drop the symbol table, and align
+        # for 16 KB page sizes.
         target_link_options(koggopus PRIVATE
                 -Wl,--exclude-libs,ALL
                 -Wl,--gc-sections
+                -Wl,--strip-all
                 -Wl,-z,max-page-size=16384)
     else()
         # Host build, used only by the JVM unit tests.

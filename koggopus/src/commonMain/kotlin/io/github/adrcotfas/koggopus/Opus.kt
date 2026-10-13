@@ -64,15 +64,6 @@ public data class OpusTags(
  */
 public class OggOpusException(public val code: Int, message: String) : RuntimeException(message)
 
-internal object NativeLibrary {
-    init {
-        System.loadLibrary("koggopus")
-    }
-
-    /** Touching this object is what loads the library; the call only makes that explicit. */
-    fun ensureLoaded() = Unit
-}
-
 /** Parses an OpusTags packet (RFC 7845 section 5.2). Returns null if it is malformed. */
 internal fun parseOpusTags(packet: ByteArray): OpusTags? {
     var pos = 8 // "OpusTags"
@@ -88,7 +79,7 @@ internal fun parseOpusTags(packet: ByteArray): OpusTags? {
 
     fun readString(): String? {
         val length = readLength() ?: return null
-        return String(packet, pos, length, Charsets.UTF_8).also { pos += length }
+        return packet.decodeToString(pos, pos + length).also { pos += length }
     }
 
     if (packet.size < 8) return null
