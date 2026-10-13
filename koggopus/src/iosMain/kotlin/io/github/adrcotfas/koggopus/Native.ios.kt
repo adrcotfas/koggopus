@@ -2,6 +2,7 @@
 
 package io.github.adrcotfas.koggopus
 
+import io.github.adrcotfas.koggopus.cinterop.KOGG_ERR_TOO_LARGE
 import io.github.adrcotfas.koggopus.cinterop.KOGG_OK
 import cnames.structs.kogg_decoder
 import io.github.adrcotfas.koggopus.cinterop.kogg_decoder_channels
@@ -88,6 +89,27 @@ private class CDecoder(private val decoder: CPointer<kogg_decoder>) : NativeDeco
         val count = alloc<size_tVar>()
         check(pcm.usePinned { kogg_decoder_read(decoder, it.addressOf(offset), length.convert(), count.ptr) })
         count.value.toInt()
+    }
+
+    // iOS is little-endian, so samples and their bytes are the same memory.
+    override fun feedBytes(data: ByteArray, offset: Int, length: Int): ByteArray = memScoped {
+        check(withInput(data, offset, length) { input -> kogg_decoder_feed(decoder, input, length.convert()) })
+        val count = alloc<size_tVar>()
+        val samples = kogg_decoder_take(decoder, count.ptr)
+        if (count.value > (Int.MAX_VALUE / Short.SIZE_BYTES).toULong()) check(KOGG_ERR_TOO_LARGE)
+        ByteArray(count.value.toInt() * Short.SIZE_BYTES).also { pcm ->
+            if (pcm.isNotEmpty()) pcm.usePinned { memcpy(it.addressOf(0), samples, pcm.size.convert()) }
+        }
+    }
+
+    override fun readBytes(pcm: ByteArray, offset: Int, length: Int): Int {
+        // Decode into an array of samples: at an odd offset [pcm] is not aligned for them.
+        val samples = ShortArray(length / Short.SIZE_BYTES)
+        val size = read(samples, 0, samples.size) * Short.SIZE_BYTES
+        if (size > 0) {
+            samples.usePinned { from -> pcm.usePinned { to -> memcpy(to.addressOf(offset), from.addressOf(0), size.convert()) } }
+        }
+        return size
     }
 
     override fun channels() = kogg_decoder_channels(decoder)

@@ -18,6 +18,10 @@ internal interface NativeDecoder {
     fun push(data: ByteArray, offset: Int, length: Int)
     fun read(pcm: ShortArray, offset: Int, length: Int): Int
 
+    /** [feed] and [read] with the samples as little-endian bytes; lengths and results are in bytes. */
+    fun feedBytes(data: ByteArray, offset: Int, length: Int): ByteArray
+    fun readBytes(pcm: ByteArray, offset: Int, length: Int): Int
+
     /** 0 while the output layout still depends on a stream that has not arrived. */
     fun channels(): Int
 

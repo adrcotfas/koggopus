@@ -10,7 +10,9 @@ package io.github.adrcotfas.koggopus
  * There are two ways to use it. [feed] takes a chunk and returns all the audio it
  * completes, which is the simplest. [push] and [read] separate the two steps, so the
  * caller decides how much audio is decoded at a time; use them when the stream is not
- * trusted, or to decode straight into a playback buffer.
+ * trusted, or to decode straight into a playback buffer. Either way the audio comes as
+ * samples in a `ShortArray` or, with [feedBytes] and the `ByteArray` form of [read], as
+ * little-endian bytes.
  *
  * Calls on one instance are serialised, so [close] may be called from another thread
  * while another call is in progress.
@@ -50,6 +52,15 @@ public class OggOpusDecoder(public val sampleRate: Int = 48000, channels: Int? =
     }
 
     /**
+     * Like [feed], but returns the audio as little-endian 16-bit samples, two bytes each:
+     * the form the encoder's `write(ByteArray)` takes, and what a socket or a file carries.
+     */
+    public fun feedBytes(bytes: ByteArray, offset: Int = 0, length: Int = bytes.size - offset): ByteArray {
+        checkRange(bytes.size, offset, length, 1)
+        return lock.withLock { open().feedBytes(bytes, offset, length) }
+    }
+
+    /**
      * Queues the next bytes of the stream without decoding them. Follow it with [read]
      * until that returns 0; the bytes stay in memory until then.
      */
@@ -74,6 +85,18 @@ public class OggOpusDecoder(public val sampleRate: Int = 48000, channels: Int? =
         checkRange(pcm.size, offset, length, 1)
         require(length >= 2) { "length must be at least 2" }
         return lock.withLock { open().read(pcm, offset, length) }
+    }
+
+    /**
+     * Like [read], but writes the audio as little-endian 16-bit samples, two bytes each, and
+     * returns the number of bytes written.
+     *
+     * @param length room in [pcm16le] in bytes, at least 4. Only whole frames are written.
+     */
+    public fun read(pcm16le: ByteArray, offset: Int = 0, length: Int = pcm16le.size - offset): Int {
+        checkRange(pcm16le.size, offset, length, 1)
+        require(length >= 4) { "length must be at least 4" }
+        return lock.withLock { open().readBytes(pcm16le, offset, length) }
     }
 
     /**
