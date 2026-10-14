@@ -37,6 +37,7 @@ kotlin {
 | Android | API 21 or later | JNI libraries for `arm64-v8a`, `armeabi-v7a`, `x86_64` and `x86`, aligned for 16 KB page sizes, at 0.3 to 0.6 MB per ABI |
 | iOS | iOS 14 or later | Static libraries for `iosArm64`, `iosSimulatorArm64` and `iosX64`, linked into your framework |
 | macOS (Kotlin/Native) | macOS 11 or later | Static libraries for `macosArm64`, linked into your binary |
+| Linux (Kotlin/Native) | glibc 2.28 or later | Static libraries for `linuxX64` and `linuxArm64`, linked into your binary |
 | Desktop JVM | Java 11 or later; macOS 11 or later (Apple silicon or Intel), or Linux with glibc 2.28 or later (x64 or arm64) | A JNI library per OS and architecture inside the jar, at about 0.5 MB each |
 
 The API is the same everywhere. Nothing else needs installing: the native code is inside
@@ -136,7 +137,7 @@ so is a comment header larger than 16 MB, in which case `decoder.tags` is null.
 - Mono and stereo only. Surround streams are rejected.
 - 16-bit integer PCM only.
 - No seeking: the decoder reads a stream front to back.
-- No Windows, Kotlin/Native Linux, or web targets yet.
+- No Windows or web targets yet.
 
 ## Building
 
@@ -161,15 +162,17 @@ The interoperability tests compare against `opusenc`, `opusdec` and `opusinfo` f
 installed.
 
 The Kotlin code is one public API in `commonMain` over a small binding per platform: JNI
-on Android and the desktop JVM (`jniMain`), cinterop on iOS and macOS (`nativeMain`).
+on Android and the desktop JVM (`jniMain`), cinterop on iOS, macOS and Linux (`nativeMain`).
 Gradle runs `native/CMakeLists.txt` once for each Android ABI, each Kotlin/Native target, and each desktop
 platform the build machine can target: both macOS architectures on a Mac, its own
 architecture on Linux.
 
-A local jvm jar holds only those. A published one also needs the Linux libraries, which
-`native/build-jvm-linux.sh` builds in Docker on glibc 2.28, one architecture per machine.
-Its output directory goes to Gradle as `-Pkoggopus.prebuiltNatives=<dir>`, and the upload
-to Maven Central fails unless the jar holds all four libraries.
+A local jvm jar holds only those, and a Mac leaves out the Linux Kotlin/Native targets
+with a warning. A release also needs the Linux libraries, which `native/build-linux.sh`
+builds in Docker on glibc 2.28, one architecture per machine: the JNI library and the
+static libraries for `linuxX64` or `linuxArm64`. Its output directory goes to Gradle as
+`-Pkoggopus.prebuiltNatives=<dir>`, and the upload to Maven Central fails unless every
+library and target is there.
 
 The native code lives in `native/`: `core/` is plain C over libopusenc, libogg and
 libopus, and `jni/` is the thin binding layer Android and the desktop JVM use. `native/test/hostile.c` feeds corrupted

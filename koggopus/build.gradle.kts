@@ -3,6 +3,7 @@ import org.jetbrains.kotlin.gradle.ExperimentalKotlinGradlePluginApi
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.plugin.KotlinPlatformType
 import org.jetbrains.kotlin.gradle.plugin.mpp.KotlinNativeTarget
+import org.jetbrains.kotlin.konan.target.Family
 import org.jetbrains.kotlin.konan.target.HostManager
 import org.jetbrains.kotlin.konan.target.KonanTarget
 import java.util.zip.ZipFile
@@ -18,6 +19,23 @@ group = "io.github.adrcotfas"
 version = providers.gradleProperty("VERSION_NAME").get()
 
 val androidMinSdk = libs.versions.android.minSdk.get().toInt()
+
+// Native libraries built elsewhere, by native/build-linux.sh: <dir>/jvm is laid out like
+// the jvm jar, and <dir>/static/<target> holds a Kotlin/Native Linux target's static libraries.
+val prebuiltNatives = providers.gradleProperty("koggopus.prebuiltNatives").orNull?.let { rootProject.file(it) }
+val hostArch = if (System.getProperty("os.arch") in listOf("aarch64", "arm64")) "arm64" else "x64"
+
+/** Prebuilt static libraries for a Kotlin/Native Linux target, if there are any. */
+fun prebuiltStatic(target: String) = prebuiltNatives?.resolve("static/$target")?.takeIf { it.isDirectory }
+
+// A Linux target needs its static libraries, which only a Linux machine of that architecture
+// can build. Elsewhere it is left out, so the other targets still build; publishing to Maven
+// Central checks that it is there.
+val linuxTargets = mapOf("linuxX64" to "x64", "linuxArm64" to "arm64").filter { (target, arch) ->
+    (prebuiltStatic(target) != null || (HostManager.hostIsLinux && arch == hostArch)).also {
+        if (!it) logger.warn("koggopus: leaving out $target, which needs -Pkoggopus.prebuiltNatives (see native/build-linux.sh)")
+    }
+}
 
 kotlin {
     explicitApi()
@@ -59,6 +77,8 @@ kotlin {
     iosSimulatorArm64()
     iosX64()
     macosArm64()
+    if ("linuxX64" in linuxTargets) linuxX64()
+    if ("linuxArm64" in linuxTargets) linuxArm64()
 
     // jniMain: the JNI binding, shared by Android and the desktop JVM.
     @OptIn(ExperimentalKotlinGradlePluginApi::class)
@@ -202,13 +222,11 @@ fun registerNativeBuild(name: String, configure: CMakeBuild.() -> Unit) = tasks.
 // Desktop JVM: a JNI library per OS and architecture, in the jar under
 // io/github/adrcotfas/koggopus/native/<platform>/, where Native.jni.kt looks for it. A Mac
 // builds both macOS libraries and a Linux machine its own. The rest come from
-// -Pkoggopus.prebuiltNatives=<dir>, a directory laid out like the jar, which CI fills with
-// the libraries built by native/build-jvm-linux.sh. A prebuilt library replaces the local
-// build, so CI tests exactly what it publishes.
+// -Pkoggopus.prebuiltNatives. A prebuilt library replaces the local build, so CI tests
+// exactly what it publishes.
 val jvmPlatforms = listOf("darwin-arm64", "darwin-x64", "linux-x64", "linux-arm64")
 val jvmNativePath = "io/github/adrcotfas/koggopus/native"
-val prebuiltNatives = providers.gradleProperty("koggopus.prebuiltNatives").orNull?.let { rootProject.file(it) }
-val hostArch = if (System.getProperty("os.arch") in listOf("aarch64", "arm64")) "arm64" else "x64"
+val prebuiltJvm = prebuiltNatives?.resolve("jvm")
 val localJvmBuilds = when {
     HostManager.hostIsMac -> mapOf(
         "darwin-arm64" to listOf("-DCMAKE_SYSTEM_NAME=Darwin", "-DCMAKE_SYSTEM_PROCESSOR=arm64", "-DCMAKE_OSX_ARCHITECTURES=arm64"),
@@ -216,7 +234,7 @@ val localJvmBuilds = when {
     )
     HostManager.hostIsLinux -> mapOf("linux-$hostArch" to emptyList())
     else -> emptyMap()
-}.filterKeys { prebuiltNatives?.resolve("$jvmNativePath/$it")?.isDirectory != true }
+}.filterKeys { prebuiltJvm?.resolve("$jvmNativePath/$it")?.isDirectory != true }
 
 val jvmNativeBuilds = localJvmBuilds.map { (platform, platformArguments) ->
     registerNativeBuild("buildJvmNative-$platform") {
@@ -235,7 +253,7 @@ val jvmNativeBuilds = localJvmBuilds.map { (platform, platformArguments) ->
 
 kotlin.sourceSets.named("jvmMain") {
     jvmNativeBuilds.forEach { resources.srcDir(it.flatMap(CMakeBuild::outputDir)) }
-    prebuiltNatives?.let { resources.srcDir(it) }
+    prebuiltJvm?.takeIf { it.isDirectory }?.let { resources.srcDir(it) }
 }
 
 tasks.named<Jar>("jvmJar") {
@@ -246,21 +264,23 @@ tasks.named<Jar>("jvmJar") {
     }
 }
 
-// A published jar must work everywhere it claims to, so Maven Central gets one only when it
-// holds every platform's library.
-val checkJvmNatives = tasks.register("checkJvmNatives") {
-    description = "Fails unless the jvm jar holds the native library for every desktop platform."
+// A release must work everywhere it claims to, so Maven Central gets one only when the jvm
+// jar holds every desktop platform's library and no Linux target was left out.
+val checkNatives = tasks.register("checkNatives") {
+    description = "Fails unless every platform's native library is part of the build."
     val jar = tasks.named<Jar>("jvmJar").flatMap { it.archiveFile }
     val expected = jvmPlatforms.map { "$jvmNativePath/$it/" }
+    val missingTargets = listOf("linuxX64", "linuxArm64") - linuxTargets.keys
     inputs.file(jar)
     doLast {
+        check(missingTargets.isEmpty()) { "These Kotlin/Native targets were left out: $missingTargets" }
         val entries = ZipFile(jar.get().asFile).use { zip -> zip.entries().toList().map { it.name } }
         val missing = expected.filter { dir -> entries.none { it.startsWith(dir) && !it.endsWith("/") } }
         check(missing.isEmpty()) { "The jvm jar has no native library in: $missing" }
     }
 }
-tasks.matching { it.name == "publishJvmPublicationToMavenCentralRepository" }.configureEach {
-    dependsOn(checkJvmNatives)
+tasks.matching { it.name.endsWith("ToMavenCentralRepository") }.configureEach {
+    dependsOn(checkNatives)
 }
 
 tasks.withType<Test>().configureEach {
@@ -299,13 +319,19 @@ extensions.configure<KotlinMultiplatformAndroidComponentsExtension> {
     }
 }
 
-// Kotlin/Native (iOS, macOS): static libraries, embedded into the Kotlin library by cinterop.
-if (HostManager.hostIsMac) {
-    kotlin.targets.withType<KotlinNativeTarget>().configureEach {
-        val targetName = name
+// Kotlin/Native: static libraries, embedded into the Kotlin library by cinterop. Apple
+// targets are built on a Mac, Linux ones on Linux unless they are prebuilt.
+kotlin.targets.withType<KotlinNativeTarget>().configureEach {
+    val targetName = name
+    val isLinux = konanTarget.family == Family.LINUX
+    if (!isLinux && !HostManager.hostIsMac) return@configureEach
+    val prebuilt = prebuiltStatic(targetName)
+    val build = if (prebuilt != null) null else registerNativeBuild("buildNative-$targetName") {
+        description = "Builds the static libraries for $targetName."
         val simulator = konanTarget != KonanTarget.IOS_ARM64
-        val platformArguments = when (konanTarget) {
-            KonanTarget.MACOS_ARM64 -> listOf(
+        arguments = when {
+            isLinux -> emptyList()
+            konanTarget == KonanTarget.MACOS_ARM64 -> listOf(
                 "-DCMAKE_SYSTEM_NAME=Darwin",
                 "-DCMAKE_SYSTEM_PROCESSOR=arm64",
                 "-DCMAKE_OSX_ARCHITECTURES=arm64",
@@ -317,18 +343,14 @@ if (HostManager.hostIsMac) {
                 "-DCMAKE_OSX_ARCHITECTURES=${if (konanTarget == KonanTarget.IOS_X64) "x86_64" else "arm64"}",
                 "-DCMAKE_OSX_DEPLOYMENT_TARGET=14.0",
             )
-        }
-        val build = registerNativeBuild("buildNative-$targetName") {
-            description = "Builds the static libraries for $targetName."
-            arguments = platformArguments + listOf("-DCMAKE_BUILD_TYPE=Release", "-DKOGG_BUILD_JNI=OFF")
-            target = "koggcore"
-            products = listOf("libkoggcore.a", "libopusenc.a", "opus/libopus.a", "ogg/libogg.a")
-            outputDir = layout.buildDirectory.dir("native/buildNative-$targetName/out")
-        }
-        compilations.getByName("main").cinterops.create("koggopus") {
-            includeDirs(nativeDir.dir("core"))
-            extraOpts("-libraryPath", build.get().outputDir.get().asFile.path)
-            tasks.named(interopProcessingTaskName) { dependsOn(build) }
-        }
+        } + listOf("-DCMAKE_BUILD_TYPE=Release", "-DKOGG_BUILD_JNI=OFF")
+        target = "koggcore"
+        products = listOf("libkoggcore.a", "libopusenc.a", "opus/libopus.a", "ogg/libogg.a")
+        outputDir = layout.buildDirectory.dir("native/buildNative-$targetName/out")
+    }
+    compilations.getByName("main").cinterops.create("koggopus") {
+        includeDirs(nativeDir.dir("core"))
+        extraOpts("-libraryPath", prebuilt?.path ?: build!!.get().outputDir.get().asFile.path)
+        if (build != null) tasks.named(interopProcessingTaskName) { dependsOn(build) }
     }
 }

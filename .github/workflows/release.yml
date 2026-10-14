@@ -10,8 +10,8 @@ permissions:
   contents: read
 
 jobs:
-  # The Linux libraries for the jvm jar; the Mac in the publish job builds the macOS ones.
-  jvm-linux:
+  # The Linux libraries, for the jvm jar and the Linux klibs; the publish job builds the rest.
+  linux:
     strategy:
       matrix:
         include:
@@ -26,16 +26,16 @@ jobs:
           submodules: recursive
           # Full history, so the submodules have the release tags their versions are read from.
           fetch-depth: 0
-      - name: Build the library
-        run: native/build-jvm-linux.sh ${{ matrix.arch }} build/jvm-natives
+      - name: Build the libraries
+        run: native/build-linux.sh ${{ matrix.arch }} build/natives
       - uses: actions/upload-artifact@v7
         with:
-          name: jvm-linux-${{ matrix.arch }}
-          path: build/jvm-natives/
+          name: linux-${{ matrix.arch }}
+          path: build/natives/
           if-no-files-found: error
 
   publish:
-    needs: jvm-linux
+    needs: linux
     # macOS, because the iOS libraries can only be built there.
     runs-on: macos-latest
     steps:
@@ -57,8 +57,8 @@ jobs:
             "cmake;$(sed -n 's/^cmake = "\(.*\)"/\1/p' gradle/libs.versions.toml)"
       - uses: actions/download-artifact@v8
         with:
-          pattern: jvm-linux-*
-          path: build/jvm-natives/
+          pattern: linux-*
+          path: build/natives/
           merge-multiple: true
       - name: Install the reference Opus tools
         run: brew install opus-tools
@@ -67,7 +67,7 @@ jobs:
       - name: Publish
         run: >-
           ./gradlew :koggopus:publishToMavenCentral -PVERSION_NAME="${GITHUB_REF_NAME#v}"
-          -Pkoggopus.prebuiltNatives=build/jvm-natives --no-configuration-cache
+          -Pkoggopus.prebuiltNatives=build/natives --no-configuration-cache
         env:
           ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
           ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}

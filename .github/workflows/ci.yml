@@ -57,8 +57,8 @@ jobs:
           path: build/fuzz/crashes/
           if-no-files-found: ignore
 
-  # Builds the Linux library the way a release does, then runs the tests against it.
-  jvm-linux:
+  # Builds the Linux libraries the way a release does, then runs the tests against them.
+  linux:
     strategy:
       matrix:
         include:
@@ -73,8 +73,8 @@ jobs:
           submodules: recursive
           # Full history, so the submodules have the release tags their versions are read from.
           fetch-depth: 0
-      - name: Build the library
-        run: native/build-jvm-linux.sh ${{ matrix.arch }} build/jvm-natives
+      - name: Build the libraries
+        run: native/build-linux.sh ${{ matrix.arch }} build/natives
       - uses: actions/setup-java@v6
         with:
           distribution: temurin
@@ -86,7 +86,10 @@ jobs:
       - name: Install the reference Opus tools
         run: sudo apt-get update && sudo apt-get install -y opus-tools
       - name: JVM tests
-        run: ./gradlew :koggopus:jvmTest -Pkoggopus.prebuiltNatives=build/jvm-natives
+        run: ./gradlew :koggopus:jvmTest -Pkoggopus.prebuiltNatives=build/natives
+      - name: Kotlin/Native tests
+        if: matrix.arch == 'x64'
+        run: ./gradlew :koggopus:linuxX64Test -Pkoggopus.prebuiltNatives=build/natives
 
   device:
     runs-on: ubuntu-latest

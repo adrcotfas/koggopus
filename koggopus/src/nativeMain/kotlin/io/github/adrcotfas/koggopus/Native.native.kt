@@ -34,7 +34,9 @@ import kotlinx.cinterop.addressOf
 import kotlinx.cinterop.alloc
 import kotlinx.cinterop.allocArray
 import kotlinx.cinterop.convert
+import kotlinx.cinterop.free
 import kotlinx.cinterop.memScoped
+import kotlinx.cinterop.nativeHeap
 import kotlinx.cinterop.ptr
 import kotlinx.cinterop.readBytes
 import kotlinx.cinterop.reinterpret
@@ -43,7 +45,14 @@ import kotlinx.cinterop.toKString
 import kotlinx.cinterop.usePinned
 import kotlinx.cinterop.value
 import platform.posix.memcpy
+import platform.posix.pthread_mutex_destroy
+import platform.posix.pthread_mutex_init
+import platform.posix.pthread_mutex_lock
+import platform.posix.pthread_mutex_t
+import platform.posix.pthread_mutex_unlock
 import platform.posix.size_tVar
+import kotlin.experimental.ExperimentalNativeApi
+import kotlin.native.ref.createCleaner
 
 private fun check(status: Int) {
     if (status != KOGG_OK) throw OggOpusException(status, kogg_strerror(status)?.toKString() ?: "error $status")
@@ -180,4 +189,27 @@ internal actual fun createNativeDecoder(sampleRate: Int, channels: Int): NativeD
     val decoder = kogg_decoder_create(sampleRate, channels, error.ptr)
     check(error.value)
     CDecoder(checkNotNull(decoder))
+}
+
+internal actual fun createLock(): Lock = MutexLock()
+
+private class MutexLock : Lock {
+    private val mutex = nativeHeap.alloc<pthread_mutex_t>().also { pthread_mutex_init(it.ptr, null) }
+
+    // Frees the mutex once the lock is garbage; it is never read.
+    @Suppress("unused")
+    @OptIn(ExperimentalNativeApi::class)
+    private val cleaner = createCleaner(mutex) {
+        pthread_mutex_destroy(it.ptr)
+        nativeHeap.free(it)
+    }
+
+    override fun <T> withLock(block: () -> T): T {
+        pthread_mutex_lock(mutex.ptr)
+        try {
+            return block()
+        } finally {
+            pthread_mutex_unlock(mutex.ptr)
+        }
+    }
 }
