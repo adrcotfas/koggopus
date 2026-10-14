@@ -69,7 +69,12 @@ if(KOGG_BUILD_JNI)
                 -Wl,--strip-all
                 -Wl,-z,max-page-size=16384)
     else()
-        # Host build, used only by the JVM unit tests.
+        # Desktop JVM. The same treatment as Android, in each linker's terms.
+        if(APPLE)
+            target_link_options(koggopus PRIVATE -Wl,-exported_symbol,_Java_* -Wl,-dead_strip -Wl,-x)
+        elseif(NOT WIN32)
+            target_link_options(koggopus PRIVATE -Wl,--exclude-libs,ALL -Wl,--gc-sections -Wl,--strip-all)
+        endif()
         target_include_directories(koggopus PRIVATE
                 ${JAVA_HOME}/include
                 ${JAVA_HOME}/include/darwin

@@ -28,10 +28,8 @@ jobs:
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
             "ndk;$(sed -n 's/^ndk = "\(.*\)"/\1/p' gradle/libs.versions.toml)" \
             "cmake;$(sed -n 's/^cmake = "\(.*\)"/\1/p' gradle/libs.versions.toml)"
-      - name: Install the reference Opus tools
-        run: sudo apt-get update && sudo apt-get install -y opus-tools
-      - name: Host tests and the Android library
-        run: ./gradlew :koggopus:testAndroidHostTest :koggopus:assembleAndroidMain
+      - name: The Android library
+        run: ./gradlew :koggopus:assembleAndroidMain
       - name: Hostile-input test under sanitizers
         run: |
           cmake -S native -B build/sanitize -DKOGG_BUILD_JNI=OFF -DKOGG_BUILD_TESTS=ON \
@@ -58,6 +56,37 @@ jobs:
           name: fuzz-crashes
           path: build/fuzz/crashes/
           if-no-files-found: ignore
+
+  # Builds the Linux library the way a release does, then runs the tests against it.
+  jvm-linux:
+    strategy:
+      matrix:
+        include:
+          - arch: x64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+          # Full history, so the submodules have the release tags their versions are read from.
+          fetch-depth: 0
+      - name: Build the library
+        run: native/build-jvm-linux.sh ${{ matrix.arch }} build/jvm-natives
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v6
+      # The Arm image has no Android SDK, and Gradle cannot configure the project without one.
+      - uses: android-actions/setup-android@v4
+        if: matrix.arch == 'arm64'
+      - name: Install the reference Opus tools
+        run: sudo apt-get update && sudo apt-get install -y opus-tools
+      - name: JVM tests
+        run: ./gradlew :koggopus:jvmTest -Pkoggopus.prebuiltNatives=build/jvm-natives
 
   device:
     runs-on: ubuntu-latest
@@ -89,7 +118,7 @@ jobs:
           arch: x86_64
           script: ./gradlew :koggopus:connectedAndroidDeviceTest :consumer-check:connectedMinifiedAndroidTest
 
-  ios:
+  apple:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v7
@@ -102,5 +131,5 @@ jobs:
           distribution: temurin
           java-version: 21
       - uses: gradle/actions/setup-gradle@v6
-      - name: Tests on the iOS simulator
-        run: ./gradlew :koggopus:iosSimulatorArm64Test
+      - name: Tests on the iOS simulator and the JVM
+        run: ./gradlew :koggopus:iosSimulatorArm64Test :koggopus:jvmTest

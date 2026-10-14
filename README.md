@@ -1,9 +1,10 @@
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/header-dark.svg">
-  <img alt="koggopus: streaming Ogg Opus encoder and decoder for Kotlin Multiplatform, on Android and iOS" src="docs/header-light.svg">
+  <img alt="koggopus: streaming Ogg Opus encoder and decoder for Kotlin Multiplatform, on Android, iOS and the desktop JVM" src="docs/header-light.svg">
 </picture>
 
-Streaming Ogg Opus for Kotlin Multiplatform, on Android and iOS: PCM in, Ogg pages out;
+Streaming Ogg Opus for Kotlin Multiplatform, on Android, iOS and the desktop JVM: PCM in,
+Ogg pages out;
 Ogg bytes in, PCM out.
 
 koggopus is for live audio, such as sending microphone audio over a network connection or
@@ -35,9 +36,14 @@ kotlin {
 |---|---|---|
 | Android | API 21 or later | JNI libraries for `arm64-v8a`, `armeabi-v7a`, `x86_64` and `x86`, aligned for 16 KB page sizes, at 0.3 to 0.6 MB per ABI |
 | iOS | iOS 14 or later | Static libraries for `iosArm64`, `iosSimulatorArm64` and `iosX64`, linked into your framework |
+| Desktop JVM | Java 11 or later; macOS 11 or later (Apple silicon or Intel), or Linux with glibc 2.28 or later (x64 or arm64) | A JNI library per OS and architecture inside the jar, at about 0.5 MB each |
 
-The API is the same on both. Nothing else needs installing: the native code is inside
+The API is the same everywhere. Nothing else needs installing: the native code is inside
 the published artifacts.
+
+On the desktop JVM the library is copied from the jar to a temporary file and loaded from
+there. Java 24 and later print a warning when a library loads unless the application runs
+with `--enable-native-access=ALL-UNNAMED`. Windows is not supported yet.
 
 ## Encoding
 
@@ -129,18 +135,17 @@ so is a comment header larger than 16 MB, in which case `decoder.tags` is null.
 - Mono and stereo only. Surround streams are rejected.
 - 16-bit integer PCM only.
 - No seeking: the decoder reads a stream front to back.
-- Android and iOS only. The build also produces a JNI library for the build machine, to
-  run the tests on; it is not published, so there is no desktop JVM target.
+- No Windows, Kotlin/Native desktop, or web targets yet.
 
 ## Building
 
 ```sh
 git clone --recurse-submodules https://github.com/adrcotfas/koggopus
 cd koggopus
-./gradlew :koggopus:testAndroidHostTest      # the tests, on the build machine's JVM
+./gradlew :koggopus:jvmTest                  # the tests, on the build machine's JVM
 ./gradlew :koggopus:iosSimulatorArm64Test    # the same tests on the iOS simulator (macOS)
 ./gradlew :koggopus:connectedAndroidDeviceTest   # and on an Android device or emulator
-./gradlew :koggopus:assemble                 # the Android AAR and, on macOS, the iOS libraries
+./gradlew :koggopus:assemble                 # the Android AAR, the jvm jar and, on macOS, the iOS libraries
 ./gradlew :consumer-check:connectedMinifiedAndroidTest   # the library inside an R8-shrunk app
 ```
 
@@ -154,11 +159,18 @@ The interoperability tests compare against `opusenc`, `opusdec` and `opusinfo` f
 installed.
 
 The Kotlin code is one public API in `commonMain` over a small binding per platform: JNI
-on Android, cinterop on iOS. Gradle runs `native/CMakeLists.txt` once for each Android
-ABI, each iOS target and the build machine.
+on Android and the desktop JVM (`jniMain`), cinterop on iOS. Gradle runs
+`native/CMakeLists.txt` once for each Android ABI, each iOS target, and each desktop
+platform the build machine can target: both macOS architectures on a Mac, its own
+architecture on Linux.
+
+A local jvm jar holds only those. A published one also needs the Linux libraries, which
+`native/build-jvm-linux.sh` builds in Docker on glibc 2.28, one architecture per machine.
+Its output directory goes to Gradle as `-Pkoggopus.prebuiltNatives=<dir>`, and the upload
+to Maven Central fails unless the jar holds all four libraries.
 
 The native code lives in `native/`: `core/` is plain C over libopusenc, libogg and
-libopus, and `jni/` is the thin binding layer Android uses. `native/test/hostile.c` feeds corrupted
+libopus, and `jni/` is the thin binding layer Android and the desktop JVM use. `native/test/hostile.c` feeds corrupted
 streams to the decoder and is meant to run under AddressSanitizer:
 
 ```sh

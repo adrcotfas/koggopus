@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Desktop JVM: the `koggopus-jvm` artifact bundles the native library for macOS (arm64,
+  x64) and Linux (x64, arm64, glibc 2.28 or later). Gradle picks it from the `koggopus`
+  coordinate.
+- The jvm jar includes the ProGuard keep rules under `META-INF/proguard/`.
+
 ## 0.2.0 - 2026-10-14
 
 - Kotlin Multiplatform: the same API now runs on iOS (`iosArm64`, `iosSimulatorArm64`,
