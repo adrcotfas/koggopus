@@ -1,4 +1,7 @@
-# koggopus
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/header-dark.svg">
+  <img alt="koggopus: streaming Ogg Opus encoder and decoder for Kotlin Multiplatform, on Android and iOS" src="docs/header-light.svg">
+</picture>
 
 Streaming Ogg Opus for Kotlin Multiplatform, on Android and iOS: PCM in, Ogg pages out;
 Ogg bytes in, PCM out.
