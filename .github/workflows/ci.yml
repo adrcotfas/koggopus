@@ -131,5 +131,5 @@ jobs:
           distribution: temurin
           java-version: 21
       - uses: gradle/actions/setup-gradle@v6
-      - name: Tests on the iOS simulator and the JVM
-        run: ./gradlew :koggopus:iosSimulatorArm64Test :koggopus:jvmTest
+      - name: Tests on the iOS simulator, macOS and the JVM
+        run: ./gradlew :koggopus:iosSimulatorArm64Test :koggopus:macosArm64Test :koggopus:jvmTest

@@ -42,7 +42,6 @@ import kotlinx.cinterop.set
 import kotlinx.cinterop.toKString
 import kotlinx.cinterop.usePinned
 import kotlinx.cinterop.value
-import platform.Foundation.NSLock
 import platform.posix.memcpy
 import platform.posix.size_tVar
 
@@ -181,17 +180,4 @@ internal actual fun createNativeDecoder(sampleRate: Int, channels: Int): NativeD
     val decoder = kogg_decoder_create(sampleRate, channels, error.ptr)
     check(error.value)
     CDecoder(checkNotNull(decoder))
-}
-
-internal actual fun createLock(): Lock = object : Lock {
-    private val lock = NSLock()
-
-    override fun <T> withLock(block: () -> T): T {
-        lock.lock()
-        try {
-            return block()
-        } finally {
-            lock.unlock()
-        }
-    }
 }

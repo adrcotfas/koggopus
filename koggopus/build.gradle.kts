@@ -58,6 +58,7 @@ kotlin {
     iosArm64()
     iosSimulatorArm64()
     iosX64()
+    macosArm64()
 
     // jniMain: the JNI binding, shared by Android and the desktop JVM.
     @OptIn(ExperimentalKotlinGradlePluginApi::class)
@@ -124,8 +125,8 @@ mavenPublishing {
 // ---- Native code ------------------------------------------------------------------------
 //
 // native/CMakeLists.txt builds the C core and the bundled libraries. It is run from here
-// once per platform: a JNI library for each Android ABI, static libraries for each iOS
-// target, and a JNI library for each desktop OS and architecture.
+// once per platform: a JNI library for each Android ABI, static libraries for each
+// Kotlin/Native target, and a JNI library for each desktop OS and architecture.
 
 /** Configures and builds one CMake target, then copies what it produced to [outputDir]. */
 abstract class CMakeBuild @Inject constructor(
@@ -298,24 +299,31 @@ extensions.configure<KotlinMultiplatformAndroidComponentsExtension> {
     }
 }
 
-// iOS: static libraries, embedded into the Kotlin library by cinterop.
+// Kotlin/Native (iOS, macOS): static libraries, embedded into the Kotlin library by cinterop.
 if (HostManager.hostIsMac) {
     kotlin.targets.withType<KotlinNativeTarget>().configureEach {
         val targetName = name
         val simulator = konanTarget != KonanTarget.IOS_ARM64
-        val build = registerNativeBuild("buildIosNative-$targetName") {
-            description = "Builds the static libraries for $targetName."
-            arguments = listOf(
+        val platformArguments = when (konanTarget) {
+            KonanTarget.MACOS_ARM64 -> listOf(
+                "-DCMAKE_SYSTEM_NAME=Darwin",
+                "-DCMAKE_SYSTEM_PROCESSOR=arm64",
+                "-DCMAKE_OSX_ARCHITECTURES=arm64",
+                "-DCMAKE_OSX_DEPLOYMENT_TARGET=11.0",
+            )
+            else -> listOf(
                 "-DCMAKE_SYSTEM_NAME=iOS",
                 "-DCMAKE_OSX_SYSROOT=${if (simulator) "iphonesimulator" else "iphoneos"}",
                 "-DCMAKE_OSX_ARCHITECTURES=${if (konanTarget == KonanTarget.IOS_X64) "x86_64" else "arm64"}",
                 "-DCMAKE_OSX_DEPLOYMENT_TARGET=14.0",
-                "-DCMAKE_BUILD_TYPE=Release",
-                "-DKOGG_BUILD_JNI=OFF",
             )
+        }
+        val build = registerNativeBuild("buildNative-$targetName") {
+            description = "Builds the static libraries for $targetName."
+            arguments = platformArguments + listOf("-DCMAKE_BUILD_TYPE=Release", "-DKOGG_BUILD_JNI=OFF")
             target = "koggcore"
             products = listOf("libkoggcore.a", "libopusenc.a", "opus/libopus.a", "ogg/libogg.a")
-            outputDir = layout.buildDirectory.dir("native/buildIosNative-$targetName/out")
+            outputDir = layout.buildDirectory.dir("native/buildNative-$targetName/out")
         }
         compilations.getByName("main").cinterops.create("koggopus") {
             includeDirs(nativeDir.dir("core"))

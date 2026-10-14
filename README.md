@@ -36,6 +36,7 @@ kotlin {
 |---|---|---|
 | Android | API 21 or later | JNI libraries for `arm64-v8a`, `armeabi-v7a`, `x86_64` and `x86`, aligned for 16 KB page sizes, at 0.3 to 0.6 MB per ABI |
 | iOS | iOS 14 or later | Static libraries for `iosArm64`, `iosSimulatorArm64` and `iosX64`, linked into your framework |
+| macOS (Kotlin/Native) | macOS 11 or later | Static libraries for `macosArm64`, linked into your binary |
 | Desktop JVM | Java 11 or later; macOS 11 or later (Apple silicon or Intel), or Linux with glibc 2.28 or later (x64 or arm64) | A JNI library per OS and architecture inside the jar, at about 0.5 MB each |
 
 The API is the same everywhere. Nothing else needs installing: the native code is inside
@@ -135,7 +136,7 @@ so is a comment header larger than 16 MB, in which case `decoder.tags` is null.
 - Mono and stereo only. Surround streams are rejected.
 - 16-bit integer PCM only.
 - No seeking: the decoder reads a stream front to back.
-- No Windows, Kotlin/Native desktop, or web targets yet.
+- No Windows, Kotlin/Native Linux, or web targets yet.
 
 ## Building
 
@@ -144,13 +145,14 @@ git clone --recurse-submodules https://github.com/adrcotfas/koggopus
 cd koggopus
 ./gradlew :koggopus:jvmTest                  # the tests, on the build machine's JVM
 ./gradlew :koggopus:iosSimulatorArm64Test    # the same tests on the iOS simulator (macOS)
+./gradlew :koggopus:macosArm64Test           # and as a native macOS binary
 ./gradlew :koggopus:connectedAndroidDeviceTest   # and on an Android device or emulator
-./gradlew :koggopus:assemble                 # the Android AAR, the jvm jar and, on macOS, the iOS libraries
+./gradlew :koggopus:assemble                 # the Android AAR, the jvm jar and, on macOS, the Apple libraries
 ./gradlew :consumer-check:connectedMinifiedAndroidTest   # the library inside an R8-shrunk app
 ```
 
 You need the Android SDK with NDK 30.0.16248370, CMake 3.22.1 or later, and a C compiler
-for the build machine; for the iOS targets, a Mac with Xcode. The NDK is not downloaded
+for the build machine; for the iOS and macOS targets, a Mac with Xcode. The NDK is not downloaded
 automatically: install it with `sdkmanager "ndk;30.0.16248370"`. Clone with full
 history, as above, because the bundled libraries read their version from their git tags.
 
@@ -159,8 +161,8 @@ The interoperability tests compare against `opusenc`, `opusdec` and `opusinfo` f
 installed.
 
 The Kotlin code is one public API in `commonMain` over a small binding per platform: JNI
-on Android and the desktop JVM (`jniMain`), cinterop on iOS. Gradle runs
-`native/CMakeLists.txt` once for each Android ABI, each iOS target, and each desktop
+on Android and the desktop JVM (`jniMain`), cinterop on iOS and macOS (`nativeMain`).
+Gradle runs `native/CMakeLists.txt` once for each Android ABI, each Kotlin/Native target, and each desktop
 platform the build machine can target: both macOS architectures on a Mac, its own
 architecture on Linux.
 

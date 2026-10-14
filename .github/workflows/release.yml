@@ -63,7 +63,7 @@ jobs:
       - name: Install the reference Opus tools
         run: brew install opus-tools
       - name: Test
-        run: ./gradlew :koggopus:jvmTest :koggopus:iosSimulatorArm64Test
+        run: ./gradlew :koggopus:jvmTest :koggopus:iosSimulatorArm64Test :koggopus:macosArm64Test
       - name: Publish
         run: >-
           ./gradlew :koggopus:publishToMavenCentral -PVERSION_NAME="${GITHUB_REF_NAME#v}"
