@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 - 2026-10-14
 
 - Kotlin Multiplatform: the same API now runs on iOS (`iosArm64`, `iosSimulatorArm64`,
   `iosX64`), with the native code linked in statically.

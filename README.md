@@ -22,7 +22,7 @@ project, to the module's dependencies:
 kotlin {
     sourceSets {
         commonMain.dependencies {
-            implementation("io.github.adrcotfas:koggopus:0.1.0")
+            implementation("io.github.adrcotfas:koggopus:0.2.0")
         }
     }
 }
