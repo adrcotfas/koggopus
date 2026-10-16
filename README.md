@@ -322,9 +322,10 @@ The libraries are git submodules in `native/third_party/`. To update a library:
 1. Check out a newer release tag of the library.
 2. Run the tests.
 
+A weekly GitHub Actions job opens an issue when a library has a newer release tag.
+
 ## Roadmap
 
-- A scheduled job that reports new releases of the three bundled libraries.
 - Float PCM.
 - Packet loss concealment: audio in place of missing packets.
 
