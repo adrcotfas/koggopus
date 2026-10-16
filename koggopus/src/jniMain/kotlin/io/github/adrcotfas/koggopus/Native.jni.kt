@@ -23,11 +23,24 @@ internal object Jni {
         val platform = jvmPlatform()
         val input = Jni::class.java.getResourceAsStream("/io/github/adrcotfas/koggopus/native/$platform/$name")
             ?: throw UnsatisfiedLinkError("koggopus has no native library for $platform").apply { addSuppressed(notFound) }
+        // Windows cannot delete a loaded library, so its copies go in a directory of their
+        // own, and each process deletes the ones that earlier processes left. A copy that is
+        // still loaded cannot be deleted; a recent one may be about to load.
+        val windows = platform.startsWith("windows")
+        val dir = if (!windows) null else File(System.getProperty("java.io.tmpdir"), "koggopus").apply {
+            mkdirs()
+            val stale = System.currentTimeMillis() - 60_000
+            listFiles()?.filter { it.lastModified() < stale }?.forEach { it.delete() }
+        }
         // A new file per process, so concurrent processes and library versions never clash.
-        val file = File.createTempFile("koggopus", name)
-        file.deleteOnExit()
-        input.use { from -> file.outputStream().use { from.copyTo(it) } }
-        System.load(file.path)
+        val file = File.createTempFile("koggopus", name, dir)
+        try {
+            input.use { from -> file.outputStream().use { from.copyTo(it) } }
+            System.load(file.path)
+        } finally {
+            // Elsewhere the loaded library no longer needs its file, even if the JVM is killed.
+            if (!windows) file.delete()
+        }
     }
 
     /** The names of the jar's native directories, such as linux-x64 or darwin-arm64. */

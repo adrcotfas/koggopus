@@ -20,8 +20,9 @@ version = providers.gradleProperty("VERSION_NAME").get()
 
 val androidMinSdk = libs.versions.android.minSdk.get().toInt()
 
-// Native libraries built elsewhere, by native/build-linux.sh: <dir>/jvm is laid out like
-// the jvm jar, and <dir>/static/<target> holds a Kotlin/Native Linux target's static libraries.
+// Native libraries built elsewhere, by native/build-linux.sh and native/build-windows.sh:
+// <dir>/jvm is laid out like the jvm jar, and <dir>/static/<target> holds a Kotlin/Native
+// Linux target's static libraries.
 val prebuiltNatives = providers.gradleProperty("koggopus.prebuiltNatives").orNull?.let { rootProject.file(it) }
 val hostArch = if (System.getProperty("os.arch") in listOf("aarch64", "arm64")) "arm64" else "x64"
 
@@ -221,10 +222,10 @@ fun registerNativeBuild(name: String, configure: CMakeBuild.() -> Unit) = tasks.
 
 // Desktop JVM: a JNI library per OS and architecture, in the jar under
 // io/github/adrcotfas/koggopus/native/<platform>/, where Native.jni.kt looks for it. A Mac
-// builds both macOS libraries and a Linux machine its own. The rest come from
-// -Pkoggopus.prebuiltNatives. A prebuilt library replaces the local build, so CI tests
+// builds both macOS libraries and a Linux machine its own. The rest, Windows included,
+// come from -Pkoggopus.prebuiltNatives. A prebuilt library replaces the local build, so CI tests
 // exactly what it publishes.
-val jvmPlatforms = listOf("darwin-arm64", "darwin-x64", "linux-x64", "linux-arm64")
+val jvmPlatforms = listOf("darwin-arm64", "darwin-x64", "linux-x64", "linux-arm64", "windows-x64")
 val jvmNativePath = "io/github/adrcotfas/koggopus/native"
 val prebuiltJvm = prebuiltNatives?.resolve("jvm")
 val localJvmBuilds = when {

@@ -91,6 +91,28 @@ jobs:
         if: matrix.arch == 'x64'
         run: ./gradlew :koggopus:linuxX64Test -Pkoggopus.prebuiltNatives=build/natives
 
+  # Builds the Windows library the way a release does, then runs the JVM tests against it.
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+          # Full history, so the submodules have the release tags their versions are read from.
+          fetch-depth: 0
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+      - name: Build the library
+        run: native/build-windows.sh build/natives
+      - uses: gradle/actions/setup-gradle@v6
+      - name: JVM tests
+        run: ./gradlew :koggopus:jvmTest -Pkoggopus.prebuiltNatives=build/natives
+
   device:
     runs-on: ubuntu-latest
     steps:

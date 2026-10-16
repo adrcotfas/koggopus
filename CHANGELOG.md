@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Desktop JVM on Windows x64: the jvm jar bundles `koggopus.dll`, built with MSVC and the
+  C runtime linked in statically.
+- Desktop JVM: the temporary copy of the native library is deleted right after it loads,
+  so a killed JVM no longer leaves one behind. On Windows, where a loaded library cannot
+  be deleted, the next process deletes the copies that earlier ones left.
+
 ## 0.3.0 - 2026-10-16
 
 - Desktop JVM: the `koggopus-jvm` artifact bundles the native library for macOS (arm64,
