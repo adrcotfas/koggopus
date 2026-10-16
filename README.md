@@ -1,10 +1,10 @@
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/header-dark.svg">
-  <img alt="koggopus: an Ogg Opus encoder and decoder for live audio in Kotlin Multiplatform, on Android, iOS and the desktop" src="docs/header-light.svg">
+  <img alt="koggopus: an Ogg Opus encoder and decoder for live audio in Kotlin Multiplatform, on Android, iOS, macOS, Linux and the desktop JVM" src="docs/header-light.svg">
 </picture>
 
 koggopus encodes and decodes Ogg Opus audio streams in Kotlin Multiplatform, on Android,
-iOS, macOS, Linux and the desktop JVM.
+iOS, macOS, Linux and the desktop JVM (macOS, Linux and Windows).
 
 - The encoder changes PCM audio into Ogg pages.
 - The decoder changes Ogg data into PCM audio.
