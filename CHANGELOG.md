@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Desktop JVM on Windows x64: the jvm jar bundles `koggopus.dll`, built with MSVC and the
+  C runtime linked in statically.
+
 ## 0.3.0 - 2026-10-16
 
 - Desktop JVM: the `koggopus-jvm` artifact bundles the native library for macOS (arm64,

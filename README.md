@@ -72,14 +72,14 @@ dependencies {
 | iOS | iOS 14 | Static libraries for `iosArm64`, `iosSimulatorArm64` and `iosX64`. Your framework links them. |
 | macOS (Kotlin/Native) | macOS 11 | Static libraries for `macosArm64`. Your binary links them. |
 | Linux (Kotlin/Native) | glibc 2.28 | Static libraries for `linuxX64` and `linuxArm64`. Your binary links them. |
-| Desktop JVM | Java 11. macOS 11 (Apple silicon or Intel), or Linux with glibc 2.28 (x64 or arm64). | One JNI library for each OS and architecture, in the jar. Size: approximately 0.5 MB each. |
+| Desktop JVM | Java 11. macOS 11 (Apple silicon or Intel), Linux with glibc 2.28 (x64 or arm64), or Windows 10 (x64). | One JNI library for each OS and architecture, in the jar. Size: approximately 0.5 MB each. |
 
 The API is the same on all platforms. You do not have to install other software. The
 published packages contain the native code.
 
 On the desktop JVM, koggopus copies the library from the jar to a temporary file and
 loads it from there. Java 24 and later show a warning when the library loads, unless the
-application runs with `--enable-native-access=ALL-UNNAMED`. Windows is not supported yet.
+application runs with `--enable-native-access=ALL-UNNAMED`.
 
 ## Encode audio
 
@@ -216,7 +216,7 @@ the decoder does with bad input:
 - Mono and stereo only. The decoder rejects surround streams.
 - 16-bit integer PCM only.
 - No seeking. The decoder reads a stream from the start to the end.
-- No Windows or web targets yet.
+- No Kotlin/Native target for Windows (`mingwX64`), no Windows on Arm, and no web targets.
 
 ## Build from source
 
@@ -262,17 +262,19 @@ the decoder does with bad input:
 | `commonMain` | The public Kotlin API. Each platform has a small binding below it: JNI on Android and the desktop JVM (`jniMain`), cinterop on iOS, macOS and Linux (`nativeMain`). |
 | `native/CMakeLists.txt` | The native build. Gradle runs it one time for each Android ABI, each Kotlin/Native target, and each desktop platform that the build computer can make: both macOS architectures on a Mac, its own architecture on Linux. |
 | `native/build-linux.sh` | Builds the Linux libraries in Docker on glibc 2.28, for one architecture. |
+| `native/build-windows.sh` | Builds the Windows x64 JNI library with MSVC. |
 | `native/core/` | Plain C code over libopusenc, libogg and libopus. |
 | `native/jni/` | The JNI binding for Android and the desktop JVM. |
 | `native/test/hostile.c` | A test that sends corrupt streams to the decoder. |
 
-### Linux libraries for a release
+### Linux and Windows libraries for a release
 
 A local jvm jar contains only the libraries that the build computer can make. On a Mac,
 Gradle also leaves out the Linux Kotlin/Native targets and shows a warning. A release
 needs all the libraries. Run `native/build-linux.sh` on an x64 and on an arm64 Linux
-computer. Then give its output directory to Gradle with
-`-Pkoggopus.prebuiltNatives=<dir>`. The upload to Maven Central fails if a library or a
+computer, and `native/build-windows.sh` in Git Bash on Windows. Put their output in one
+directory and give it to Gradle with `-Pkoggopus.prebuiltNatives=<dir>`. On Windows, the
+JVM tests also need this property. The upload to Maven Central fails if a library or a
 target is missing.
 
 ### Test with corrupt input

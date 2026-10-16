@@ -10,7 +10,8 @@ permissions:
   contents: read
 
 jobs:
-  # The Linux libraries, for the jvm jar and the Linux klibs; the publish job builds the rest.
+  # The Linux libraries, for the jvm jar and the Linux klibs; the publish job builds the
+  # Apple ones.
   linux:
     strategy:
       matrix:
@@ -30,12 +31,36 @@ jobs:
         run: native/build-linux.sh ${{ matrix.arch }} build/natives
       - uses: actions/upload-artifact@v7
         with:
-          name: linux-${{ matrix.arch }}
+          name: natives-linux-${{ matrix.arch }}
+          path: build/natives/
+          if-no-files-found: error
+
+  # The Windows library, for the jvm jar.
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+          # Full history, so the submodules have the release tags their versions are read from.
+          fetch-depth: 0
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+      - name: Build the library
+        run: native/build-windows.sh build/natives
+      - uses: actions/upload-artifact@v7
+        with:
+          name: natives-windows-x64
           path: build/natives/
           if-no-files-found: error
 
   publish:
-    needs: linux
+    needs: [linux, windows]
     # macOS, because the iOS libraries can only be built there.
     runs-on: macos-latest
     steps:
@@ -57,7 +82,7 @@ jobs:
             "cmake;$(sed -n 's/^cmake = "\(.*\)"/\1/p' gradle/libs.versions.toml)"
       - uses: actions/download-artifact@v8
         with:
-          pattern: linux-*
+          pattern: natives-*
           path: build/natives/
           merge-multiple: true
       - name: Install the reference Opus tools

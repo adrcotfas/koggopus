@@ -4,6 +4,15 @@ project(koggopus C)
 set(CMAKE_C_STANDARD 99)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(CMAKE_C_VISIBILITY_PRESET hidden)
+# MSVC: link the C runtime statically, so the Windows library needs no Visual C++
+# redistributable. The policy default reaches libogg, whose minimum CMake version predates it.
+set(CMAKE_POLICY_DEFAULT_CMP0091 NEW)
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+if(MSVC)
+    set(KOGG_WARNINGS /W3)
+else()
+    set(KOGG_WARNINGS -Wall -Wextra)
+endif()
 
 option(KOGG_BUILD_JNI "Build the JNI shared library" ON)
 option(KOGG_BUILD_TESTS "Build the native hostile-input test" OFF)
@@ -50,7 +59,7 @@ target_link_libraries(opusenc PUBLIC opus)
 
 add_library(koggcore STATIC core/kogg_enc.c core/kogg_dec.c)
 target_include_directories(koggcore PUBLIC core)
-target_compile_options(koggcore PRIVATE -Wall -Wextra)
+target_compile_options(koggcore PRIVATE ${KOGG_WARNINGS})
 target_link_libraries(koggcore PUBLIC opusenc opus ogg)
 if(NOT ANDROID AND NOT WIN32)
     target_link_libraries(koggcore PUBLIC m)
@@ -58,7 +67,7 @@ endif()
 
 if(KOGG_BUILD_JNI)
     add_library(koggopus SHARED jni/koggopus_jni.c)
-    target_compile_options(koggopus PRIVATE -Wall -Wextra)
+    target_compile_options(koggopus PRIVATE ${KOGG_WARNINGS})
     target_link_libraries(koggopus PRIVATE koggcore)
     if(ANDROID)
         # Keep the bundled libraries' symbols private, drop the symbol table, and align
