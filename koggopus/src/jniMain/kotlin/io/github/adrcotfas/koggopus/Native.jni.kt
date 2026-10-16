@@ -45,8 +45,8 @@ internal object Jni {
 
     /** The names of the jar's native directories, such as linux-x64 or darwin-arm64. */
     private fun jvmPlatform(): String {
-        val os = System.getProperty("os.name").lowercase()
-        val arch = System.getProperty("os.arch").lowercase()
+        val os = System.getProperty("os.name")!!.lowercase()
+        val arch = System.getProperty("os.arch")!!.lowercase()
         return when {
             os.startsWith("mac") -> "darwin"
             os.startsWith("linux") -> "linux"
