@@ -10,7 +10,32 @@ permissions:
   contents: read
 
 jobs:
+  # The Linux libraries, for the jvm jar and the Linux klibs; the publish job builds the rest.
+  linux:
+    strategy:
+      matrix:
+        include:
+          - arch: x64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+          # Full history, so the submodules have the release tags their versions are read from.
+          fetch-depth: 0
+      - name: Build the libraries
+        run: native/build-linux.sh ${{ matrix.arch }} build/natives
+      - uses: actions/upload-artifact@v7
+        with:
+          name: linux-${{ matrix.arch }}
+          path: build/natives/
+          if-no-files-found: error
+
   publish:
+    needs: linux
     # macOS, because the iOS libraries can only be built there.
     runs-on: macos-latest
     steps:
@@ -30,12 +55,19 @@ jobs:
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
             "ndk;$(sed -n 's/^ndk = "\(.*\)"/\1/p' gradle/libs.versions.toml)" \
             "cmake;$(sed -n 's/^cmake = "\(.*\)"/\1/p' gradle/libs.versions.toml)"
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: linux-*
+          path: build/natives/
+          merge-multiple: true
       - name: Install the reference Opus tools
         run: brew install opus-tools
       - name: Test
-        run: ./gradlew :koggopus:testAndroidHostTest :koggopus:iosSimulatorArm64Test
+        run: ./gradlew :koggopus:jvmTest :koggopus:iosSimulatorArm64Test :koggopus:macosArm64Test
       - name: Publish
-        run: ./gradlew :koggopus:publishToMavenCentral -PVERSION_NAME="${GITHUB_REF_NAME#v}" --no-configuration-cache
+        run: >-
+          ./gradlew :koggopus:publishToMavenCentral -PVERSION_NAME="${GITHUB_REF_NAME#v}"
+          -Pkoggopus.prebuiltNatives=build/natives --no-configuration-cache
         env:
           ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
           ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
