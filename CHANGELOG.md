@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 - 2026-10-16
 
 - Desktop JVM: the `koggopus-jvm` artifact bundles the native library for macOS (arm64,
   x64) and Linux (x64, arm64, glibc 2.28 or later). Gradle picks it from the `koggopus`

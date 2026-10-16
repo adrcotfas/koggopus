@@ -52,7 +52,7 @@ Kotlin Multiplatform project: add it to `commonMain`.
 kotlin {
     sourceSets {
         commonMain.dependencies {
-            implementation("io.github.adrcotfas:koggopus:0.2.0")
+            implementation("io.github.adrcotfas:koggopus:0.3.0")
         }
     }
 }
@@ -62,7 +62,7 @@ Android-only project: add it to `dependencies`.
 
 ```kotlin
 dependencies {
-    implementation("io.github.adrcotfas:koggopus:0.2.0")
+    implementation("io.github.adrcotfas:koggopus:0.3.0")
 }
 ```
 
