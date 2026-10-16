@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.1 - 2026-10-16
 
 - `OggOpusDecoder.tags` keeps only the first 1024 comments. A crafted comment header full
   of tiny comments could otherwise fill hundreds of megabytes of heap.
