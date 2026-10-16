@@ -64,7 +64,16 @@ public data class OpusTags(
  */
 public class OggOpusException(public val code: Int, message: String) : RuntimeException(message)
 
-/** Parses an OpusTags packet (RFC 7845 section 5.2). Returns null if it is malformed. */
+/**
+ * Most comments [parseOpusTags] keeps. A 16 MB packet of tiny comments would otherwise become
+ * millions of objects, hundreds of megabytes of heap.
+ */
+internal const val MAX_COMMENTS = 1024
+
+/**
+ * Parses an OpusTags packet (RFC 7845 section 5.2). Returns null if it is malformed. Comments
+ * after the first [MAX_COMMENTS] are dropped.
+ */
 internal fun parseOpusTags(packet: ByteArray): OpusTags? {
     var pos = 8 // "OpusTags"
     fun readLength(): Int? {
@@ -86,7 +95,7 @@ internal fun parseOpusTags(packet: ByteArray): OpusTags? {
     val vendor = readString() ?: return null
     val count = readLength() ?: return null
     val comments = ArrayList<Pair<String, String>>()
-    repeat(count) {
+    repeat(minOf(count, MAX_COMMENTS)) {
         val comment = readString() ?: return OpusTags(vendor, comments)
         val separator = comment.indexOf('=')
         if (separator > 0) comments += comment.substring(0, separator) to comment.substring(separator + 1)
