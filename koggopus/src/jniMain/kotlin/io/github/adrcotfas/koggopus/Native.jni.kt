@@ -1,12 +1,49 @@
 package io.github.adrcotfas.koggopus
 
+import java.io.File
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 
 /** The functions of native/jni/koggopus_jni.c. Handles are pointers to the C objects. */
 internal object Jni {
     init {
-        System.loadLibrary("koggopus")
+        try {
+            System.loadLibrary("koggopus")
+        } catch (notFound: UnsatisfiedLinkError) {
+            loadFromJar(notFound)
+        }
+    }
+
+    /**
+     * Desktop JVM: the jar holds a library for each supported OS and architecture. The JVM
+     * can only load one from a file, so it is copied out first.
+     */
+    private fun loadFromJar(notFound: UnsatisfiedLinkError) {
+        val name = System.mapLibraryName("koggopus")
+        val platform = jvmPlatform()
+        val input = Jni::class.java.getResourceAsStream("/io/github/adrcotfas/koggopus/native/$platform/$name")
+            ?: throw UnsatisfiedLinkError("koggopus has no native library for $platform").apply { addSuppressed(notFound) }
+        // A new file per process, so concurrent processes and library versions never clash.
+        val file = File.createTempFile("koggopus", name)
+        file.deleteOnExit()
+        input.use { from -> file.outputStream().use { from.copyTo(it) } }
+        System.load(file.path)
+    }
+
+    /** The names of the jar's native directories, such as linux-x64 or darwin-arm64. */
+    private fun jvmPlatform(): String {
+        val os = System.getProperty("os.name").lowercase()
+        val arch = System.getProperty("os.arch").lowercase()
+        return when {
+            os.startsWith("mac") -> "darwin"
+            os.startsWith("linux") -> "linux"
+            os.startsWith("windows") -> "windows"
+            else -> os
+        } + "-" + when (arch) {
+            "amd64", "x86_64" -> "x64"
+            "aarch64", "arm64" -> "arm64"
+            else -> arch
+        }
     }
 
     external fun encoderCreate(

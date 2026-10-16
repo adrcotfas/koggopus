@@ -1,10 +1,10 @@
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/header-dark.svg">
-  <img alt="koggopus: an Ogg Opus encoder and decoder for live audio in Kotlin Multiplatform, on Android and iOS" src="docs/header-light.svg">
+  <img alt="koggopus: an Ogg Opus encoder and decoder for live audio in Kotlin Multiplatform, on Android, iOS and the desktop" src="docs/header-light.svg">
 </picture>
 
-koggopus encodes and decodes Ogg Opus audio streams in Kotlin Multiplatform, on Android
-and iOS.
+koggopus encodes and decodes Ogg Opus audio streams in Kotlin Multiplatform, on Android,
+iOS, macOS, Linux and the desktop JVM.
 
 - The encoder changes PCM audio into Ogg pages.
 - The decoder changes Ogg data into PCM audio.
@@ -70,9 +70,16 @@ dependencies {
 |---|---|---|
 | Android | API 21 | JNI libraries for `arm64-v8a`, `armeabi-v7a`, `x86_64` and `x86`. They are aligned for 16 KB page sizes. Size: 0.3 MB to 0.6 MB for each ABI. |
 | iOS | iOS 14 | Static libraries for `iosArm64`, `iosSimulatorArm64` and `iosX64`. Your framework links them. |
+| macOS (Kotlin/Native) | macOS 11 | Static libraries for `macosArm64`. Your binary links them. |
+| Linux (Kotlin/Native) | glibc 2.28 | Static libraries for `linuxX64` and `linuxArm64`. Your binary links them. |
+| Desktop JVM | Java 11. macOS 11 (Apple silicon or Intel), or Linux with glibc 2.28 (x64 or arm64). | One JNI library for each OS and architecture, in the jar. Size: approximately 0.5 MB each. |
 
 The API is the same on all platforms. You do not have to install other software. The
 published packages contain the native code.
+
+On the desktop JVM, koggopus copies the library from the jar to a temporary file and
+loads it from there. Java 24 and later show a warning when the library loads, unless the
+application runs with `--enable-native-access=ALL-UNNAMED`. Windows is not supported yet.
 
 ## Encode audio
 
@@ -209,8 +216,7 @@ the decoder does with bad input:
 - Mono and stereo only. The decoder rejects surround streams.
 - 16-bit integer PCM only.
 - No seeking. The decoder reads a stream from the start to the end.
-- Android and iOS only. The build also makes a JNI library for the build computer, for
-  the tests. This library is not published. Thus there is no desktop JVM target.
+- No Windows or web targets yet.
 
 ## Build from source
 
@@ -220,7 +226,7 @@ the decoder does with bad input:
   it, run `sdkmanager "ndk;30.0.16248370"`.
 - CMake 3.22.1 or later.
 - A C compiler for the build computer.
-- For the iOS targets: a Mac with Xcode.
+- For the iOS and macOS targets: a Mac with Xcode.
 - Optional: `opusenc`, `opusdec` and `opusinfo` from
   [opus-tools](https://opus-codec.org/downloads/). The interoperability tests compare
   the results with these tools. If the tools are not installed, Gradle skips these
@@ -242,21 +248,32 @@ the decoder does with bad input:
 
    | Command | Result |
    |---|---|
-   | `./gradlew :koggopus:testAndroidHostTest` | Runs the tests on the JVM of the build computer. |
+   | `./gradlew :koggopus:jvmTest` | Runs the tests on the JVM of the build computer. |
    | `./gradlew :koggopus:iosSimulatorArm64Test` | Runs the tests on the iOS simulator (macOS only). |
+   | `./gradlew :koggopus:macosArm64Test` | Runs the tests as a native macOS binary (macOS only). |
    | `./gradlew :koggopus:connectedAndroidDeviceTest` | Runs the tests on an Android device or emulator. |
-   | `./gradlew :koggopus:assemble` | Makes the Android AAR. On macOS, it also makes the iOS libraries. |
+   | `./gradlew :koggopus:assemble` | Makes the Android AAR and the jvm jar. On macOS, it also makes the Apple libraries. |
    | `./gradlew :consumer-check:connectedMinifiedAndroidTest` | Tests the library in an app that R8 shrinks. |
 
 ### Project structure
 
 | Location | Contents |
 |---|---|
-| `commonMain` | The public Kotlin API. Each platform has a small binding below it: JNI on Android, cinterop on iOS. |
-| `native/CMakeLists.txt` | The native build. Gradle runs it one time for each Android ABI, each iOS target and the build computer. |
+| `commonMain` | The public Kotlin API. Each platform has a small binding below it: JNI on Android and the desktop JVM (`jniMain`), cinterop on iOS, macOS and Linux (`nativeMain`). |
+| `native/CMakeLists.txt` | The native build. Gradle runs it one time for each Android ABI, each Kotlin/Native target, and each desktop platform that the build computer can make: both macOS architectures on a Mac, its own architecture on Linux. |
+| `native/build-linux.sh` | Builds the Linux libraries in Docker on glibc 2.28, for one architecture. |
 | `native/core/` | Plain C code over libopusenc, libogg and libopus. |
-| `native/jni/` | The JNI binding for Android. |
+| `native/jni/` | The JNI binding for Android and the desktop JVM. |
 | `native/test/hostile.c` | A test that sends corrupt streams to the decoder. |
+
+### Linux libraries for a release
+
+A local jvm jar contains only the libraries that the build computer can make. On a Mac,
+Gradle also leaves out the Linux Kotlin/Native targets and shows a warning. A release
+needs all the libraries. Run `native/build-linux.sh` on an x64 and on an arm64 Linux
+computer. Then give its output directory to Gradle with
+`-Pkoggopus.prebuiltNatives=<dir>`. The upload to Maven Central fails if a library or a
+target is missing.
 
 ### Test with corrupt input
 
