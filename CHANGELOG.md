@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- `OggOpusDecoder.tags` keeps only the first 1024 comments. A crafted comment header full
+  of tiny comments could otherwise fill hundreds of megabytes of heap.
+
 ## 0.4.0 - 2026-10-16
 
 - Desktop JVM on Windows x64: the jvm jar bundles `koggopus.dll`, built with MSVC and the

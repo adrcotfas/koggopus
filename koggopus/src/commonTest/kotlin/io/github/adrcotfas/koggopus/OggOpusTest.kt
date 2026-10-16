@@ -244,6 +244,23 @@ class OggOpusTest {
     }
 
     @Test
+    fun commentsBeyondTheLimitAreDropped() {
+        // "OpusTags", an empty vendor string, then more comments than are kept.
+        val count = MAX_COMMENTS + 10
+        val packet = ByteArray(16 + count * 7)
+        "OpusTags".encodeToByteArray().copyInto(packet)
+        putLe(packet, 12, 4, count.toLong())
+        for (i in 0 until count) {
+            putLe(packet, 16 + i * 7, 4, 3)
+            "a=b".encodeToByteArray().copyInto(packet, 20 + i * 7)
+        }
+
+        val tags = assertNotNull(parseOpusTags(packet))
+        assertEquals(MAX_COMMENTS, tags.comments.size)
+        assertEquals("a" to "b", tags.comments.last())
+    }
+
+    @Test
     fun garbageDecodesToNothing() {
         OggOpusDecoder().use { decoder ->
             assertEquals(0, decoder.feed(Random(2).nextBytes(200_000)).size)
