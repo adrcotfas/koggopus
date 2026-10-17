@@ -118,7 +118,8 @@ public class OggOpusDecoder(public val sampleRate: Int = 48000, channels: Int? =
 
     /**
      * Comment header of the stream being decoded. Null until it has arrived, and also when
-     * the stream's comment header is larger than 16 MB, which is skipped.
+     * the stream's comment header is larger than 16 MB, which is skipped. Only the first
+     * 1024 comments are kept.
      */
     public val tags: OpusTags?
         get() = lock.withLock { nativeTags(open()) }?.let(::parseOpusTags)
