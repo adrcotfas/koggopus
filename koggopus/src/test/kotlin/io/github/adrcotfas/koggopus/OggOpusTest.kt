@@ -155,6 +155,29 @@ class OggOpusTest {
     }
 
     @Test
+    fun byteOutputIsTheSameAudioAsShortOutput() {
+        val stream = encode(sine(rate = 48000, seconds = 0.5, channels = 2), rate = 48000, channels = 2)
+        val samples = decode(stream, rate = 48000)
+        val expected = ByteBuffer.allocate(samples.size * 2).order(ByteOrder.LITTLE_ENDIAN)
+            .apply { asShortBuffer().put(samples) }.array()
+
+        OggOpusDecoder(48000).use { assertArrayEquals(expected, it.feedBytes(stream)) }
+        OggOpusDecoder(48000).use { decoder ->
+            // An odd offset and a length that is not a whole number of frames.
+            val buffer = ByteArray(1 + 1001)
+            val actual = ByteArrayOutputStream()
+            decoder.push(stream)
+            while (true) {
+                val count = decoder.read(buffer, offset = 1)
+                if (count == 0) break
+                assertEquals(0, count % 4)
+                actual.write(buffer, 1, count)
+            }
+            assertArrayEquals(expected, actual.toByteArray())
+        }
+    }
+
+    @Test
     fun outputLayoutStaysTheSameAcrossChainedStreams() {
         val mono = sine(rate = 16000, seconds = 0.5)
         val stereo = sine(rate = 16000, seconds = 0.25, channels = 2)
