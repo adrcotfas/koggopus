@@ -2,7 +2,6 @@ package io.github.adrcotfas.koggopus
 
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
@@ -54,6 +53,9 @@ class OggOpusTest {
         val fromBytes = OggOpusEncoder(16000, serialNumber = 7).use { it.write(bytes) + it.finish() }
 
         assertArrayEquals(fromShorts, fromBytes)
+        // At an odd offset the samples are not aligned for 16-bit access.
+        val unaligned = OggOpusEncoder(16000, serialNumber = 7).use { it.write(byteArrayOf(0) + bytes, offset = 1) + it.finish() }
+        assertArrayEquals(fromShorts, unaligned)
     }
 
     @Test
@@ -237,7 +239,7 @@ class OggOpusTest {
             assertNull(decoder.tags)
             decoder.feed(stream)
 
-            val head = assertNotNull(decoder.head).let { decoder.head!! }
+            val head = decoder.head!!
             assertEquals(1, head.channels)
             assertEquals(16000, head.inputSampleRate)
             assertTrue(head.preSkip > 0)

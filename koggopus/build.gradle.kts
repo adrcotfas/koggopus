@@ -1,3 +1,4 @@
+import com.android.build.api.variant.HostTestBuilder
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -33,6 +34,15 @@ android {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
+}
+
+androidComponents.onVariants { variant ->
+    // Every variant gets the native code a release ships, so the device tests run that code.
+    variant.externalNativeBuild?.arguments?.add("-DCMAKE_BUILD_TYPE=Release")
+    // OggOpusTest runs on the build machine and on the device, against each ABI's library.
+    // InteropTest stays in test: it needs opus-tools.
+    variant.hostTests[HostTestBuilder.UNIT_TEST_TYPE]?.sources?.kotlin?.addStaticSourceDirectory("src/sharedTest/kotlin")
+    variant.androidTest?.sources?.kotlin?.addStaticSourceDirectory("src/sharedTest/kotlin")
 }
 
 kotlin {
