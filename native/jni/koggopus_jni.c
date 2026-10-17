@@ -110,23 +110,6 @@ JNIEXPORT jbyteArray JNICALL ENC(nativeWriteShorts)(JNIEnv *env, jclass cls, jlo
     return take_pages(env, enc, status);
 }
 
-JNIEXPORT jbyteArray JNICALL ENC(nativeWriteBytes)(JNIEnv *env, jclass cls, jlong handle,
-                                                   jbyteArray pcm, jint offset, jint length,
-                                                   jint frames) {
-    (void) cls;
-    kogg_encoder *enc = (kogg_encoder *) (intptr_t) handle;
-    /* Copy so the samples are aligned for 16-bit access whatever the offset. */
-    int16_t *samples = malloc((size_t) length + 1);
-    if (!samples) {
-        throw_error(env, KOGG_ERR_ALLOC);
-        return NULL;
-    }
-    (*env)->GetByteArrayRegion(env, pcm, offset, length, (jbyte *) samples);
-    int status = kogg_encoder_write(enc, samples, frames);
-    free(samples);
-    return take_pages(env, enc, status);
-}
-
 JNIEXPORT jbyteArray JNICALL ENC(nativeFinish)(JNIEnv *env, jclass cls, jlong handle) {
     (void) cls;
     kogg_encoder *enc = (kogg_encoder *) (intptr_t) handle;

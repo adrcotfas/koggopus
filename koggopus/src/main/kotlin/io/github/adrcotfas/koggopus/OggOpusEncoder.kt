@@ -1,5 +1,7 @@
 package io.github.adrcotfas.koggopus
 
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 import kotlin.random.Random
@@ -56,7 +58,7 @@ public class OggOpusEncoder(
         val encodedComments = comments.map { (tag, value) ->
             require(tag.isNotEmpty() && '=' !in tag) { "invalid comment tag: $tag" }
             require('\u0000' !in tag && '\u0000' !in value) { "comments must not contain NUL" }
-            "$tag=$value".toByteArray(Charsets.UTF_8)
+            "$tag=$value".encodeToByteArray()
         }
         NativeLibrary.ensureLoaded()
         handle = nativeCreate(
@@ -97,7 +99,8 @@ public class OggOpusEncoder(
      */
     public fun write(pcm16le: ByteArray, offset: Int = 0, length: Int = pcm16le.size - offset): ByteArray {
         checkRange(pcm16le.size, offset, length, 2 * channels)
-        return lock.withLock { nativeWriteBytes(open(), pcm16le, offset, length, length / (2 * channels)) }
+        val pcm = ShortArray(length / 2).also { ByteBuffer.wrap(pcm16le, offset, length).order(ByteOrder.LITTLE_ENDIAN).asShortBuffer().get(it) }
+        return lock.withLock { nativeWriteShorts(open(), pcm, 0, pcm.size / channels) }
     }
 
     /**
@@ -134,7 +137,6 @@ public class OggOpusEncoder(
 
     private external fun nativeHeaders(handle: Long): ByteArray
     private external fun nativeWriteShorts(handle: Long, pcm: ShortArray, offset: Int, frames: Int): ByteArray
-    private external fun nativeWriteBytes(handle: Long, pcm: ByteArray, offset: Int, length: Int, frames: Int): ByteArray
     private external fun nativeFinish(handle: Long): ByteArray
     private external fun nativeDestroy(handle: Long)
 }

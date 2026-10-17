@@ -97,7 +97,7 @@ internal fun parseOpusTags(packet: ByteArray): OpusTags? {
 
     fun readString(): String? {
         val length = readLength() ?: return null
-        return String(packet, pos, length, Charsets.UTF_8).also { pos += length }
+        return packet.decodeToString(pos, pos + length).also { pos += length }
     }
 
     if (packet.size < 8) return null
