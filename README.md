@@ -1,30 +1,59 @@
 # koggopus
 
-Streaming Ogg Opus for Kotlin on Android: PCM in, Ogg pages out; Ogg bytes in, PCM out.
+koggopus encodes and decodes Ogg Opus audio streams in Kotlin on Android.
 
-koggopus is for live audio, such as sending microphone audio over a network connection or
-playing a stream as it arrives. It bundles the reference [Xiph](https://xiph.org)
-implementations, so the container format (pages, checksums, granule positions, pre-skip,
-end trimming) is handled for you.
+- The encoder changes PCM audio into Ogg pages.
+- The decoder changes Ogg data into PCM audio.
 
-- **Encoder**: 16-bit PCM, mono or stereo, at any sample rate. Returns whole Ogg pages as
-  soon as they are ready, so each result can be sent as one message.
-- **Decoder**: accepts the stream in chunks of any size and returns 16-bit PCM at the
-  rate and channel count you choose. Handles chained streams and skips corrupt data.
+Use koggopus for live audio. For example:
+
+- Send microphone audio through a network connection.
+- Play a stream while it arrives.
+
+koggopus contains the reference libraries from [Xiph](https://xiph.org). These libraries
+do all the work for the Ogg container format: pages, checksums, granule positions,
+pre-skip and end trimming.
+
+## Terms
+
+| Term | Meaning |
+|---|---|
+| PCM | Uncompressed audio. koggopus uses 16-bit signed integers. |
+| Sample | One PCM value for one channel. |
+| Frame | One sample for each channel. A stereo frame has two samples. |
+| Page | The unit of data in an Ogg stream. |
+| Chunk | A part of the input data. A chunk can have any size. |
+
+## Features
+
+**Encoder**
+
+- Input: 16-bit PCM, mono or stereo, at any sample rate.
+- Output: complete Ogg pages. The encoder returns each page when it is complete. You can
+  send each result as one message.
+
+**Decoder**
+
+- Input: chunks of an Ogg Opus stream.
+- Output: 16-bit PCM at the sample rate and channel count that you select.
+- The decoder accepts chained streams. It skips corrupt data.
 
 ## Installation
 
+Add the dependency to the build file of your module:
+
 ```kotlin
 dependencies {
-    implementation("io.github.adrcotfas:koggopus:0.1.0")
+    implementation("io.github.adrcotfas:koggopus:0.4.1")
 }
 ```
 
-Requires Android 5.0 (API 21) or later. The AAR contains native libraries for
-`arm64-v8a`, `armeabi-v7a`, `x86_64` and `x86`, aligned for 16 KB page sizes, at
-0.3 to 0.5 MB per ABI.
+- Minimum version: Android 5.0 (API 21).
+- The AAR contains JNI libraries for `arm64-v8a`, `armeabi-v7a`, `x86_64` and `x86`.
+  They are aligned for 16 KB page sizes. Size: 0.3 MB to 0.5 MB for each ABI.
+- You do not have to install other software. The AAR contains the native code.
 
-## Encoding
+## Encode audio
 
 ```kotlin
 val encoder = OggOpusEncoder(
@@ -41,18 +70,33 @@ while (recording) {
     val pages = encoder.write(pcm) // empty until a page is complete
     if (pages.isNotEmpty()) send(pages)
 }
-send(encoder.finish())             // remaining audio and the end-of-stream page
+send(encoder.finish())             // the remaining audio and the end-of-stream page
 encoder.close()
 ```
 
-`write` also accepts little-endian 16-bit PCM as a `ByteArray`. Input does not have to
-arrive in Opus frame sizes; the encoder buffers and reframes it.
+1. Make an `OggOpusEncoder`.
+2. Send the two header pages from `headers()`.
+3. Give the PCM audio to `write()`. `write()` returns an empty array until a page is
+   complete.
+4. When the recording stops, call `finish()`. It returns the remaining audio and the
+   end-of-stream page.
+5. Call `close()`.
 
-`pageDurationMs` sets the trade-off between latency and overhead: each page carries a
-header of about 27 bytes plus one byte per packet. At 24 kbit/s, 80 ms pages add roughly
-13% overhead and 20 ms pages add roughly 47%.
+> [!NOTE]
+> - `write()` also accepts little-endian 16-bit PCM as a `ByteArray`.
+> - The input does not have to agree with the Opus frame size. The encoder keeps the
+>   input in a buffer and divides it into Opus frames.
 
-## Decoding
+### Page duration
+
+`pageDurationMs` controls the latency and the overhead:
+
+- Each page has a header of approximately 27 bytes, plus 1 byte for each packet.
+- Short pages decrease the latency, but they increase the overhead.
+- At 24 kbit/s, 80 ms pages add approximately 13% overhead. 20 ms pages add
+  approximately 47% overhead.
+
+## Decode audio
 
 ```kotlin
 val decoder = OggOpusDecoder(sampleRate = 24000)
@@ -64,75 +108,137 @@ for (chunk in incomingChunks) {              // any size, any alignment
 decoder.close()
 ```
 
-`decoder.head` and `decoder.tags` expose the stream's headers once they have arrived.
+- `feed()` accepts a chunk of any size and alignment. It returns an empty array until the
+  audio is complete.
+- When the stream headers arrive, `decoder.head` and `decoder.tags` contain them.
 
-The output layout never changes once it is known. Pass `channels = 1` or `channels = 2`
-to choose it; otherwise the first stream decides and `decoder.channels` reports it. A
-chained stream with a different channel count is converted, so the audio can go to one
-`AudioTrack` throughout. Stereo output is interleaved.
+### Output channels
 
-### Decoding a bounded amount at a time
+The output channel layout does not change after the decoder knows it.
 
-`feed` returns everything a chunk completes, and a few bytes of valid Opus can expand to
-a lot of silence: each kilobyte can produce up to about 3 MB of mono or 6 MB of stereo
-PCM at 48 kHz. When the stream comes from an untrusted source, or to decode straight
-into a playback buffer, queue the input with `push` and collect the audio with `read`,
-which never writes more than the buffer you give it:
+- To select the layout, set `channels = 1` (mono) or `channels = 2` (stereo).
+- If you do not set `channels`, the first stream sets the layout. `decoder.channels`
+  shows it.
+- If a chained stream has a different channel count, the decoder converts it. Thus you
+  can send all the audio to one output, for example an `AudioTrack`.
+- Stereo output is interleaved.
+
+### Decode a limited quantity of audio at a time
+
+> [!CAUTION]
+> A small quantity of valid Opus data can decode to a large quantity of silence. 1 KB of
+> input can make up to approximately 3 MB of mono PCM, or 6 MB of stereo PCM, at 48 kHz.
+> `feed()` returns all the audio that a chunk completes.
+
+Use `push()` and `read()` instead of `feed()` when:
+
+- The stream comes from a source that you do not trust.
+- You decode directly into a playback buffer.
+
+`push()` adds the input to a queue. `read()` writes the audio into your buffer. `read()`
+never writes more audio than your buffer can hold.
 
 ```kotlin
 val buffer = ShortArray(4096)
 for (chunk in incomingChunks) {
     decoder.push(chunk)
     while (true) {
-        val count = decoder.read(buffer)   // samples written; 0 when more input is needed
+        val count = decoder.read(buffer)   // samples written; 0 when more input is necessary
         if (count == 0) break
         play(buffer, count)
     }
 }
 ```
 
-A single `feed` that would return more than 2^30 samples throws `OggOpusException` and
-discards that audio; `read` has no such limit.
+- If one `feed()` call must return more than 2^30 samples, it throws `OggOpusException`.
+  It also discards that audio.
+- `read()` does not have this limit.
 
-## Threading and errors
+### Get the audio as bytes
 
-Calls on one encoder or decoder are serialised, so it is safe to `close()` an instance
-from another thread, for example to abort a stream. Invalid arguments throw
-`IllegalArgumentException`, use after `close()` throws `IllegalStateException`, and
-failures in the native layer throw `OggOpusException`.
+To get the audio as little-endian bytes, for example for a socket or a file:
 
-The decoder stays usable after an `OggOpusException`. A stream it cannot decode, such as
-surround, is reported once and skipped; `read` returns the audio ahead of it first and
-throws on the following call. Corrupt pages and packets are skipped without an error, and
-so is a comment header larger than 16 MB, in which case `decoder.tags` is null.
+- Use `feedBytes()`, or
+- Give `read()` a `ByteArray`.
+
+## Threads
+
+koggopus serializes the calls on one encoder or decoder. Thus you can call `close()` from
+a different thread, for example to stop a stream.
+
+## Errors
+
+| Cause | Exception |
+|---|---|
+| An argument is not valid. | `IllegalArgumentException` |
+| A call after `close()`. | `IllegalStateException` |
+| A failure in the native code. | `OggOpusException` |
+
+After an `OggOpusException`, you can continue to use the decoder. This table shows what
+the decoder does with bad input:
+
+| Input | What the decoder does |
+|---|---|
+| A stream that it cannot decode, for example surround | It reports the stream one time and skips it. `read()` first returns the audio before that stream. The next `read()` call throws the exception. |
+| Corrupt pages and packets | It skips them. It does not show an error. |
+| A comment header larger than 16 MB | It skips the header. `decoder.tags` is then null. |
 
 ## Limits
 
-- Mono and stereo only. Surround streams are rejected.
+- Mono and stereo only. The decoder rejects surround streams.
 - 16-bit integer PCM only.
-- No seeking: the decoder reads a stream front to back.
-- Android only. The build also produces a host library for the unit tests, which is not
-  published.
+- No seeking. The decoder reads a stream from the start to the end.
 
-## Building
+## Build from source
 
-```sh
-git clone --recurse-submodules https://github.com/adrcotfas/koggopus
-cd koggopus
-./gradlew :koggopus:testDebugUnitTest   # unit tests on the host JVM
-./gradlew :koggopus:assembleRelease     # the AAR
-./gradlew :koggopus:connectedDebugAndroidTest   # needs a device or emulator
-./gradlew :consumer-check:connectedMinifiedAndroidTest   # the library inside an R8-shrunk app
-```
+### Requirements
 
-You need the Android SDK with NDK 28.2.13676358 and CMake 3.22.1, and a C compiler for
-the host. The interoperability tests compare against `opusenc`, `opusdec` and `opusinfo`
-from [opus-tools](https://opus-codec.org/downloads/) and are skipped when those are not
-installed.
+- The Android SDK with NDK 30.0.16248370 and CMake 4.1.2. To install them, run
+  `sdkmanager "ndk;30.0.16248370" "cmake;4.1.2"`.
+- A C compiler for the build computer. The unit tests run on its JVM, so Gradle also
+  builds the native library for it. Gradle uses the CMake from the Android SDK, or else the
+  CMake on the `PATH`.
+- Optional: `opusenc`, `opusdec` and `opusinfo` from
+  [opus-tools](https://opus-codec.org/downloads/). The interoperability tests compare
+  the results with these tools. If the tools are not installed, Gradle skips these
+  tests.
 
-The native code lives in `native/`: `core/` is plain C over libopusenc, libogg and
-libopus, and `jni/` is a thin binding layer. `native/test/hostile.c` feeds corrupted
-streams to the decoder and is meant to run under AddressSanitizer:
+### Procedure
+
+1. Clone the repository with its submodules and its full history:
+
+   ```sh
+   git clone --recurse-submodules https://github.com/adrcotfas/koggopus
+   cd koggopus
+   ```
+
+   You must have the full history. The bundled libraries get their versions from their
+   git tags.
+
+2. Run the command that you need:
+
+   | Command | Result |
+   |---|---|
+   | `./gradlew :koggopus:testDebugUnitTest` | Runs the tests on the JVM of the build computer. |
+   | `./gradlew :koggopus:connectedDebugAndroidTest` | Runs the tests on an Android device or emulator. |
+   | `./gradlew :koggopus:assembleRelease` | Makes the AAR. |
+   | `./gradlew :consumer-check:connectedMinifiedAndroidTest` | Tests the library in an app that R8 shrinks. |
+
+### Project structure
+
+| Location | Contents |
+|---|---|
+| `koggopus/src/main` | The public Kotlin API, and its `external` functions. |
+| `native/CMakeLists.txt` | The native build. Gradle runs it one time for each Android ABI, and one time for the build computer for the unit tests. |
+| `native/core/` | Plain C code over libopusenc, libogg and libopus. |
+| `native/jni/` | The JNI binding. |
+| `native/test/hostile.c` | A test that sends corrupt streams to the decoder. |
+
+### Test with corrupt input
+
+`hostile.c` decodes each input in three ways: in one piece, in chunks, and with
+`push()` and `read()`. The three results must be the same. Run the test with
+AddressSanitizer:
 
 ```sh
 cmake -S native -B build/sanitize -DKOGG_BUILD_JNI=OFF -DKOGG_BUILD_TESTS=ON \
@@ -140,11 +246,17 @@ cmake -S native -B build/sanitize -DKOGG_BUILD_JNI=OFF -DKOGG_BUILD_TESTS=ON \
 cmake --build build/sanitize --target kogg_hostile && build/sanitize/kogg_hostile
 ```
 
-Every input in that test is decoded three ways (in one piece, in chunks, and through
-`push`/`read`) and the results must match. The same harness is a
-[libFuzzer](https://llvm.org/docs/LibFuzzer.html) target, which CI runs for a minute on
-every push. To run it for longer you need a clang that ships libFuzzer. Apple's does not;
-on macOS install Homebrew's `llvm` and use `-DCMAKE_C_COMPILER=$(brew --prefix llvm)/bin/clang`.
+### Fuzz test
+
+The same test is also a [libFuzzer](https://llvm.org/docs/LibFuzzer.html) target. CI
+runs it for one minute on each push.
+
+To run it for a longer time, you must have a clang that contains libFuzzer. The clang
+from Apple does not contain it. On macOS:
+
+1. Install `llvm` from Homebrew.
+2. In the commands below, replace `-DCMAKE_C_COMPILER=clang` with
+   `-DCMAKE_C_COMPILER=$(brew --prefix llvm)/bin/clang`.
 
 ```sh
 cmake -S native -B build/fuzz -DKOGG_BUILD_JNI=OFF -DKOGG_BUILD_TESTS=ON -DKOGG_BUILD_FUZZER=ON \
@@ -162,19 +274,19 @@ build/fuzz/kogg_fuzz -dict=native/test/oggopus.dict -max_len=65536 build/fuzz/co
 | [libogg](https://github.com/xiph/ogg) | 1.3.6 |
 | [libopusenc](https://github.com/xiph/libopusenc) | 0.3 |
 
-They are pinned as git submodules under `native/third_party/`. Updating one is a matter
-of checking out a newer release tag and running the tests.
+The libraries are git submodules in `native/third_party/`. To update a library:
+
+1. Check out a newer release tag of the library.
+2. Run the tests.
+
+A weekly GitHub Actions job opens an issue when a library has a newer release tag.
 
 ## Roadmap
 
-- Watch upstream for fixes: a scheduled job that reports new releases of the three
-  bundled libraries.
-- iOS and desktop JVM targets.
 - Float PCM.
-- More than two channels.
-- Loss concealment when packets are missing.
+- Packet loss concealment: audio in place of missing packets.
 
 ## License
 
-MIT, see [LICENSE](LICENSE). The bundled libraries are BSD-licensed; see
+MIT. See [LICENSE](LICENSE). The bundled libraries use BSD licenses. See
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
