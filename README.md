@@ -22,7 +22,7 @@ pre-skip and end trimming.
 
 | Term | Meaning |
 |---|---|
-| PCM | Uncompressed audio. koggopus uses 16-bit signed integers. |
+| PCM | Uncompressed audio. koggopus uses 16-bit signed integers or 32-bit floats. |
 | Sample | One PCM value for one channel. |
 | Frame | One sample for each channel. A stereo frame has two samples. |
 | Page | The unit of data in an Ogg stream. |
@@ -32,14 +32,14 @@ pre-skip and end trimming.
 
 **Encoder**
 
-- Input: 16-bit PCM, mono or stereo, at any sample rate.
+- Input: 16-bit or float PCM, mono or stereo, at any sample rate.
 - Output: complete Ogg pages. The encoder returns each page when it is complete. You can
   send each result as one message.
 
 **Decoder**
 
 - Input: chunks of an Ogg Opus stream.
-- Output: 16-bit PCM at the sample rate and channel count that you select.
+- Output: 16-bit or float PCM at the sample rate and channel count that you select.
 - The decoder accepts chained streams. It skips corrupt data.
 
 ## Installation
@@ -111,7 +111,8 @@ encoder.close()
 5. Call `close()`.
 
 > [!NOTE]
-> - `write()` also accepts little-endian 16-bit PCM as a `ByteArray`.
+> - `write()` also accepts little-endian 16-bit PCM as a `ByteArray`, and float PCM as a
+>   `FloatArray`.
 > - The input does not have to agree with the Opus frame size. The encoder keeps the
 >   input in a buffer and divides it into Opus frames.
 
@@ -189,6 +190,20 @@ To get the audio as little-endian bytes, for example for a socket or a file:
 - Use `feedBytes()`, or
 - Give `read()` a `ByteArray`.
 
+### Get the audio as floats
+
+To get float samples, use `feedFloat()`, or give `read()` a `FloatArray`. Float output is
+useful when you process the audio further, or when your audio output accepts floats, for
+example `AudioFormat.ENCODING_PCM_FLOAT` on Android.
+
+- The nominal range of the samples is -1 to 1.
+- The decoder does not clip float samples, so loud audio can go out of this range. Your
+  code must limit the samples if the next step cannot accept them.
+- The first call that returns audio sets the sample format of the decoder. A later call
+  for the other format throws `OggOpusException`.
+- If one `feedFloat()` call must return more than 2^29 samples, it throws
+  `OggOpusException`. It also discards that audio.
+
 ## Threads
 
 koggopus serializes the calls on one encoder or decoder. Thus you can call `close()` from
@@ -200,7 +215,7 @@ a different thread, for example to stop a stream.
 |---|---|
 | An argument is not valid. | `IllegalArgumentException` |
 | A call after `close()`. | `IllegalStateException` |
-| A failure in the native code. | `OggOpusException` |
+| A failure in the native code, or a decoder call for a different sample format. | `OggOpusException` |
 
 After an `OggOpusException`, you can continue to use the decoder. This table shows what
 the decoder does with bad input:
@@ -214,7 +229,6 @@ the decoder does with bad input:
 ## Limits
 
 - Mono and stereo only. The decoder rejects surround streams.
-- 16-bit integer PCM only.
 - No seeking. The decoder reads a stream from the start to the end.
 - No Kotlin/Native target for Windows (`mingwX64`), no Windows on Arm, and no web targets.
 
@@ -326,7 +340,6 @@ A weekly GitHub Actions job opens an issue when a library has a newer release ta
 
 ## Roadmap
 
-- Float PCM.
 - Packet loss concealment: audio in place of missing packets.
 
 ## License

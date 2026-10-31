@@ -9,6 +9,7 @@ package io.github.adrcotfas.koggopus
 internal interface NativeEncoder {
     fun headers(): ByteArray
     fun write(pcm: ShortArray, offset: Int, frames: Int): ByteArray
+    fun write(pcm: FloatArray, offset: Int, frames: Int): ByteArray
     fun finish(): ByteArray
     fun destroy()
 }
@@ -21,6 +22,9 @@ internal interface NativeDecoder {
     /** [feed] and [read] with the samples as little-endian bytes; lengths and results are in bytes. */
     fun feedBytes(data: ByteArray, offset: Int, length: Int): ByteArray
     fun readBytes(pcm: ByteArray, offset: Int, length: Int): Int
+
+    fun feedFloat(data: ByteArray, offset: Int, length: Int): FloatArray
+    fun read(pcm: FloatArray, offset: Int, length: Int): Int
 
     /** 0 while the output layout still depends on a stream that has not arrived. */
     fun channels(): Int

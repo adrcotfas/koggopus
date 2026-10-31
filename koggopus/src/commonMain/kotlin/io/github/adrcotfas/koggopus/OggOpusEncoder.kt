@@ -3,7 +3,7 @@ package io.github.adrcotfas.koggopus
 import kotlin.random.Random
 
 /**
- * Encodes 16-bit PCM into an Ogg Opus stream, one page at a time.
+ * Encodes 16-bit or float PCM into an Ogg Opus stream, one page at a time.
  *
  * Every call returns the Ogg pages it completed, possibly none. Concatenating everything
  * returned by [headers], [write] and [finish] yields a valid `.opus` stream. Pages are
@@ -98,6 +98,18 @@ public class OggOpusEncoder(
             ((high shl 8) or low).toShort()
         }
         return lock.withLock { open().write(pcm, 0, pcm.size / channels) }
+    }
+
+    /**
+     * Encodes interleaved float samples, nominally from -1 to 1, and returns the pages
+     * completed so far. Unlike 16-bit input, this keeps all the precision and peaks of the
+     * source.
+     *
+     * @param length number of samples (not frames) to read, a multiple of [channels].
+     */
+    public fun write(pcm: FloatArray, offset: Int = 0, length: Int = pcm.size - offset): ByteArray {
+        checkRange(pcm.size, offset, length, channels)
+        return lock.withLock { open().write(pcm, offset, length / channels) }
     }
 
     /**

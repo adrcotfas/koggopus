@@ -9,12 +9,15 @@ import io.github.adrcotfas.koggopus.cinterop.kogg_decoder_channels
 import io.github.adrcotfas.koggopus.cinterop.kogg_decoder_create
 import io.github.adrcotfas.koggopus.cinterop.kogg_decoder_destroy
 import io.github.adrcotfas.koggopus.cinterop.kogg_decoder_feed
+import io.github.adrcotfas.koggopus.cinterop.kogg_decoder_feed_float
 import io.github.adrcotfas.koggopus.cinterop.kogg_decoder_head
 import io.github.adrcotfas.koggopus.cinterop.kogg_decoder_push
 import io.github.adrcotfas.koggopus.cinterop.kogg_decoder_read
+import io.github.adrcotfas.koggopus.cinterop.kogg_decoder_read_float
 import io.github.adrcotfas.koggopus.cinterop.kogg_decoder_stream_count
 import io.github.adrcotfas.koggopus.cinterop.kogg_decoder_tags
 import io.github.adrcotfas.koggopus.cinterop.kogg_decoder_take
+import io.github.adrcotfas.koggopus.cinterop.kogg_decoder_take_float
 import cnames.structs.kogg_encoder
 import io.github.adrcotfas.koggopus.cinterop.kogg_encoder_config
 import io.github.adrcotfas.koggopus.cinterop.kogg_encoder_create
@@ -23,6 +26,7 @@ import io.github.adrcotfas.koggopus.cinterop.kogg_encoder_finish
 import io.github.adrcotfas.koggopus.cinterop.kogg_encoder_headers
 import io.github.adrcotfas.koggopus.cinterop.kogg_encoder_take
 import io.github.adrcotfas.koggopus.cinterop.kogg_encoder_write
+import io.github.adrcotfas.koggopus.cinterop.kogg_encoder_write_float
 import io.github.adrcotfas.koggopus.cinterop.kogg_head
 import io.github.adrcotfas.koggopus.cinterop.kogg_strerror
 import kotlinx.cinterop.ByteVar
@@ -64,6 +68,11 @@ private class CEncoder(private val encoder: CPointer<kogg_encoder>) : NativeEnco
     override fun write(pcm: ShortArray, offset: Int, frames: Int): ByteArray {
         if (frames == 0) return ByteArray(0) // nothing to pin
         return takePages(pcm.usePinned { kogg_encoder_write(encoder, it.addressOf(offset), frames) })
+    }
+
+    override fun write(pcm: FloatArray, offset: Int, frames: Int): ByteArray {
+        if (frames == 0) return ByteArray(0) // nothing to pin
+        return takePages(pcm.usePinned { kogg_encoder_write_float(encoder, it.addressOf(offset), frames) })
     }
 
     override fun finish() = takePages(kogg_encoder_finish(encoder))
@@ -118,6 +127,21 @@ private class CDecoder(private val decoder: CPointer<kogg_decoder>) : NativeDeco
             samples.usePinned { from -> pcm.usePinned { to -> memcpy(to.addressOf(offset), from.addressOf(0), size.convert()) } }
         }
         return size
+    }
+
+    override fun feedFloat(data: ByteArray, offset: Int, length: Int): FloatArray = memScoped {
+        check(withInput(data, offset, length) { input -> kogg_decoder_feed_float(decoder, input, length.convert()) })
+        val count = alloc<size_tVar>()
+        val samples = kogg_decoder_take_float(decoder, count.ptr)
+        FloatArray(count.value.toInt()).also { pcm ->
+            if (pcm.isNotEmpty()) pcm.usePinned { memcpy(it.addressOf(0), samples, (pcm.size * Float.SIZE_BYTES).convert()) }
+        }
+    }
+
+    override fun read(pcm: FloatArray, offset: Int, length: Int): Int = memScoped {
+        val count = alloc<size_tVar>()
+        check(pcm.usePinned { kogg_decoder_read_float(decoder, it.addressOf(offset), length.convert(), count.ptr) })
+        count.value.toInt()
     }
 
     override fun channels() = kogg_decoder_channels(decoder)

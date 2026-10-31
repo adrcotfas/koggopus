@@ -24,6 +24,7 @@ const char *kogg_strerror(int error) {
         case KOGG_ERR_UNSUPPORTED: return "unsupported stream (only mono and stereo are supported)";
         case KOGG_ERR_FINISHED: return "encoder already finished";
         case KOGG_ERR_TOO_LARGE: return "too much decoded audio for one call";
+        case KOGG_ERR_FORMAT: return "decoder already outputs the other sample format";
         default: return ope_strerror(error);
     }
 }
@@ -124,6 +125,14 @@ int kogg_encoder_write(kogg_encoder *enc, const int16_t *pcm, int frames) {
     if (frames == 0) return KOGG_OK;
     enc->started = 1;
     return result(enc, ope_encoder_write(enc->ope, pcm, frames));
+}
+
+int kogg_encoder_write_float(kogg_encoder *enc, const float *pcm, int frames) {
+    if (enc->finished) return KOGG_ERR_FINISHED;
+    if (frames < 0 || (frames > 0 && !pcm)) return KOGG_ERR_ARG;
+    if (frames == 0) return KOGG_OK;
+    enc->started = 1;
+    return result(enc, ope_encoder_write_float(enc->ope, pcm, frames));
 }
 
 int kogg_encoder_finish(kogg_encoder *enc) {
