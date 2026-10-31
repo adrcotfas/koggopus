@@ -110,6 +110,17 @@ JNIEXPORT jbyteArray JNICALL JNI(encoderWrite)(JNIEnv *env, jobject self, jlong 
     return take_pages(env, enc, status);
 }
 
+JNIEXPORT jbyteArray JNICALL JNI(encoderWriteFloat)(JNIEnv *env, jobject self, jlong handle,
+                                                    jfloatArray pcm, jint offset, jint frames) {
+    (void) self;
+    kogg_encoder *enc = (kogg_encoder *) (intptr_t) handle;
+    jfloat *samples = (*env)->GetFloatArrayElements(env, pcm, NULL);
+    if (!samples) return NULL;
+    int status = kogg_encoder_write_float(enc, samples + offset, frames);
+    (*env)->ReleaseFloatArrayElements(env, pcm, samples, JNI_ABORT);
+    return take_pages(env, enc, status);
+}
+
 JNIEXPORT jbyteArray JNICALL JNI(encoderFinish)(JNIEnv *env, jobject self, jlong handle) {
     (void) self;
     kogg_encoder *enc = (kogg_encoder *) (intptr_t) handle;
@@ -177,6 +188,25 @@ JNIEXPORT jbyteArray JNICALL JNI(decoderFeedBytes)(JNIEnv *env, jobject self, jl
     return result;
 }
 
+JNIEXPORT jfloatArray JNICALL JNI(decoderFeedFloat)(JNIEnv *env, jobject self, jlong handle,
+                                                    jbyteArray data, jint offset, jint length) {
+    (void) self;
+    kogg_decoder *dec = (kogg_decoder *) (intptr_t) handle;
+    jbyte *bytes = (*env)->GetByteArrayElements(env, data, NULL);
+    if (!bytes) return NULL;
+    int status = kogg_decoder_feed_float(dec, (const unsigned char *) bytes + offset, (size_t) length);
+    (*env)->ReleaseByteArrayElements(env, data, bytes, JNI_ABORT);
+    if (status != KOGG_OK) {
+        throw_error(env, status);
+        return NULL;
+    }
+    size_t count;
+    const float *samples = kogg_decoder_take_float(dec, &count);
+    jfloatArray result = (*env)->NewFloatArray(env, (jsize) count);
+    if (result && count > 0) (*env)->SetFloatArrayRegion(env, result, 0, (jsize) count, samples);
+    return result;
+}
+
 JNIEXPORT void JNICALL JNI(decoderPush)(JNIEnv *env, jobject self, jlong handle, jbyteArray data,
                                        jint offset, jint length) {
     (void) self;
@@ -197,6 +227,19 @@ JNIEXPORT jint JNICALL JNI(decoderRead)(JNIEnv *env, jobject self, jlong handle,
     size_t count;
     int status = kogg_decoder_read(dec, samples + offset, (size_t) length, &count);
     (*env)->ReleaseShortArrayElements(env, pcm, samples, 0);
+    if (status != KOGG_OK) throw_error(env, status);
+    return (jint) count;
+}
+
+JNIEXPORT jint JNICALL JNI(decoderReadFloat)(JNIEnv *env, jobject self, jlong handle, jfloatArray pcm,
+                                             jint offset, jint length) {
+    (void) self;
+    kogg_decoder *dec = (kogg_decoder *) (intptr_t) handle;
+    jfloat *samples = (*env)->GetFloatArrayElements(env, pcm, NULL);
+    if (!samples) return 0;
+    size_t count;
+    int status = kogg_decoder_read_float(dec, samples + offset, (size_t) length, &count);
+    (*env)->ReleaseFloatArrayElements(env, pcm, samples, 0);
     if (status != KOGG_OK) throw_error(env, status);
     return (jint) count;
 }

@@ -22,6 +22,7 @@ extern "C" {
 #define KOGG_ERR_UNSUPPORTED (-103) /* valid stream this library cannot decode */
 #define KOGG_ERR_FINISHED (-104)    /* encoder used after finish */
 #define KOGG_ERR_TOO_LARGE (-105)   /* one kogg_decoder_feed decoded more audio than it may buffer */
+#define KOGG_ERR_FORMAT (-106)      /* decoder asked for a sample format other than the one it started with */
 
 const char *kogg_strerror(int error);
 
@@ -51,6 +52,7 @@ kogg_encoder *kogg_encoder_create(const kogg_encoder_config *config, int *error)
  */
 int kogg_encoder_headers(kogg_encoder *enc);
 int kogg_encoder_write(kogg_encoder *enc, const int16_t *pcm, int frames);
+int kogg_encoder_write_float(kogg_encoder *enc, const float *pcm, int frames); /* nominally -1 to 1 */
 int kogg_encoder_finish(kogg_encoder *enc);
 
 /* Returns the buffered pages and empties the buffer. Valid until the next encoder call. */
@@ -88,14 +90,23 @@ int kogg_decoder_push(kogg_decoder *dec, const unsigned char *data, size_t len);
 int kogg_decoder_read(kogg_decoder *dec, int16_t *pcm, size_t capacity, size_t *samples);
 
 /*
+ * kogg_decoder_read for samples nominally in -1 to 1. They are not clipped, so they can
+ * exceed that range. The first read or feed fixes the sample format of a decoder; a call
+ * for the other format then fails with KOGG_ERR_FORMAT.
+ */
+int kogg_decoder_read_float(kogg_decoder *dec, float *pcm, size_t capacity, size_t *samples);
+
+/*
  * kogg_decoder_push followed by reading everything into an internal buffer, collected with
  * kogg_decoder_take. On error the decoder stays usable and already decoded audio is kept,
  * except for KOGG_ERR_TOO_LARGE, which discards the audio buffered so far.
  */
 int kogg_decoder_feed(kogg_decoder *dec, const unsigned char *data, size_t len);
+int kogg_decoder_feed_float(kogg_decoder *dec, const unsigned char *data, size_t len);
 
 /* Returns interleaved samples (not frames) and empties the buffer. Valid until the next feed. */
 const int16_t *kogg_decoder_take(kogg_decoder *dec, size_t *samples);
+const float *kogg_decoder_take_float(kogg_decoder *dec, size_t *samples);
 
 /* Output channels, or 0 while they still depend on a stream that has not arrived. */
 int kogg_decoder_channels(const kogg_decoder *dec);

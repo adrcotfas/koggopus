@@ -14,8 +14,8 @@
 #define MAX_HEADER_PACKET_BYTES (16L * 1024 * 1024)
 /* Granule positions beyond this are ignored, which keeps the arithmetic on them from overflowing. */
 #define MAX_GRANULE ((ogg_int64_t) 1 << 62)
-/* Most samples one feed may produce: fits a Java array and, in bytes, a 32-bit size_t. */
-#define MAX_OUT_SAMPLES ((size_t) 1 << 30)
+/* Most audio one feed may produce: in samples it fits a Java array, in bytes a 32-bit size_t. */
+#define MAX_OUT_BYTES ((size_t) 1 << 31)
 /* An output buffer that grew past this is released once it has been taken. */
 #define KEEP_OUT_SAMPLES ((size_t) 1 << 20)
 /* A page has at most 255 segments, so it completes at most 255 packets. */
@@ -58,12 +58,13 @@ struct kogg_decoder {
     ogg_int64_t pos;   /* where the next packet begins */
     ogg_int64_t end;   /* where the audio ends, known on the final page; otherwise -1 */
 
-    int16_t *scratch;   /* one decoded packet */
+    size_t sample_size; /* bytes per output sample, which selects the format; 0 until the first read */
+    void *scratch;      /* one decoded packet */
     size_t pending_pos; /* samples of it not yet handed out */
     size_t pending_len;
     int deferred; /* error to report once the audio decoded before it has been read */
 
-    int16_t *out; /* used by kogg_decoder_feed */
+    void *out; /* used by kogg_decoder_feed */
     size_t out_len;
     size_t out_cap;
 };
@@ -138,7 +139,7 @@ static int on_head(kogg_decoder *dec, const ogg_packet *op) {
      */
     if (!dec->channels) dec->channels = channels;
     if (!dec->scratch) {
-        dec->scratch = malloc(sizeof(int16_t) * (size_t) (dec->rate / 1000 * MAX_PACKET_MS) * (size_t) dec->channels);
+        dec->scratch = malloc(dec->sample_size * (size_t) (dec->rate / 1000 * MAX_PACKET_MS) * (size_t) dec->channels);
     }
     if (dec->opus) {
         opus_decoder_ctl(dec->opus, OPUS_RESET_STATE);
@@ -209,8 +210,10 @@ static void decode_next(kogg_decoder *dec) {
     const ogg_packet *op = &dec->packets[dec->packet_next++];
     ogg_int64_t begin = dec->pos;
     dec->pos += packet_duration(op);
-    int frames = opus_decode(dec->opus, op->packet, (opus_int32) op->bytes, dec->scratch,
-                             dec->rate / 1000 * MAX_PACKET_MS, 0);
+    int capacity = dec->rate / 1000 * MAX_PACKET_MS;
+    int frames = dec->sample_size == sizeof(float)
+            ? opus_decode_float(dec->opus, op->packet, (opus_int32) op->bytes, dec->scratch, capacity, 0)
+            : opus_decode(dec->opus, op->packet, (opus_int32) op->bytes, dec->scratch, capacity, 0);
     /* Corrupt packets are skipped; there is no loss concealment. */
     if (frames <= 0) return;
 
@@ -297,9 +300,17 @@ int kogg_decoder_push(kogg_decoder *dec, const unsigned char *data, size_t len) 
     return KOGG_OK;
 }
 
-int kogg_decoder_read(kogg_decoder *dec, int16_t *pcm, size_t capacity, size_t *samples) {
+/* Fixes the sample format on first use. Audio already decoded could not be returned in another. */
+static int use_format(kogg_decoder *dec, size_t sample_size) {
+    if (!dec->sample_size) dec->sample_size = sample_size;
+    return dec->sample_size == sample_size ? KOGG_OK : KOGG_ERR_FORMAT;
+}
+
+static int read_samples(kogg_decoder *dec, void *pcm, size_t sample_size, size_t capacity, size_t *samples) {
     *samples = 0;
     if (!pcm || capacity < 2) return KOGG_ERR_ARG;
+    int format = use_format(dec, sample_size);
+    if (format) return format;
     if (dec->deferred) {
         int err = dec->deferred;
         dec->deferred = 0;
@@ -310,7 +321,8 @@ int kogg_decoder_read(kogg_decoder *dec, int16_t *pcm, size_t capacity, size_t *
             size_t count = capacity - *samples;
             if (count > dec->pending_len) count = dec->pending_len;
             count -= count % (size_t) dec->channels; /* whole frames only */
-            memcpy(pcm + *samples, dec->scratch + dec->pending_pos, count * sizeof(int16_t));
+            memcpy((char *) pcm + *samples * sample_size,
+                   (const char *) dec->scratch + dec->pending_pos * sample_size, count * sample_size);
             dec->pending_pos += count;
             dec->pending_len -= count;
             *samples += count;
@@ -335,7 +347,17 @@ int kogg_decoder_read(kogg_decoder *dec, int16_t *pcm, size_t capacity, size_t *
     }
 }
 
-int kogg_decoder_feed(kogg_decoder *dec, const unsigned char *data, size_t len) {
+int kogg_decoder_read(kogg_decoder *dec, int16_t *pcm, size_t capacity, size_t *samples) {
+    return read_samples(dec, pcm, sizeof(int16_t), capacity, samples);
+}
+
+int kogg_decoder_read_float(kogg_decoder *dec, float *pcm, size_t capacity, size_t *samples) {
+    return read_samples(dec, pcm, sizeof(float), capacity, samples);
+}
+
+static int feed_samples(kogg_decoder *dec, const unsigned char *data, size_t len, size_t sample_size) {
+    int format = use_format(dec, sample_size);
+    if (format) return format;
     if (dec->out_len == 0 && dec->out_cap > KEEP_OUT_SAMPLES) {
         free(dec->out);
         dec->out = NULL;
@@ -345,18 +367,19 @@ int kogg_decoder_feed(kogg_decoder *dec, const unsigned char *data, size_t len) 
     if (first_error) return first_error;
     for (;;) {
         if (dec->out_cap - dec->out_len < 4096) {
-            if (dec->out_len + 4096 > MAX_OUT_SAMPLES) {
+            if (dec->out_len + 4096 > MAX_OUT_BYTES / sample_size) {
                 dec->out_len = 0; /* or every later feed would fail the same way */
                 return KOGG_ERR_TOO_LARGE;
             }
             size_t cap = dec->out_cap ? dec->out_cap * 2 : 8192;
-            int16_t *grown = realloc(dec->out, cap * sizeof(int16_t));
+            void *grown = realloc(dec->out, cap * sample_size);
             if (!grown) return KOGG_ERR_ALLOC;
             dec->out = grown;
             dec->out_cap = cap;
         }
         size_t count;
-        int err = kogg_decoder_read(dec, dec->out + dec->out_len, dec->out_cap - dec->out_len, &count);
+        int err = read_samples(dec, (char *) dec->out + dec->out_len * sample_size, sample_size,
+                               dec->out_cap - dec->out_len, &count);
         dec->out_len += count;
         if (err) {
             if (!first_error) first_error = err;
@@ -366,10 +389,30 @@ int kogg_decoder_feed(kogg_decoder *dec, const unsigned char *data, size_t len) 
     }
 }
 
-const int16_t *kogg_decoder_take(kogg_decoder *dec, size_t *samples) {
+int kogg_decoder_feed(kogg_decoder *dec, const unsigned char *data, size_t len) {
+    return feed_samples(dec, data, len, sizeof(int16_t));
+}
+
+int kogg_decoder_feed_float(kogg_decoder *dec, const unsigned char *data, size_t len) {
+    return feed_samples(dec, data, len, sizeof(float));
+}
+
+static const void *take_samples(kogg_decoder *dec, size_t *samples, size_t sample_size) {
+    if (dec->sample_size != sample_size) {
+        *samples = 0;
+        return NULL;
+    }
     *samples = dec->out_len;
     dec->out_len = 0;
     return dec->out;
+}
+
+const int16_t *kogg_decoder_take(kogg_decoder *dec, size_t *samples) {
+    return take_samples(dec, samples, sizeof(int16_t));
+}
+
+const float *kogg_decoder_take_float(kogg_decoder *dec, size_t *samples) {
+    return take_samples(dec, samples, sizeof(float));
 }
 
 int kogg_decoder_channels(const kogg_decoder *dec) {

@@ -1,7 +1,7 @@
 package io.github.adrcotfas.koggopus
 
 /**
- * Decodes an Ogg Opus stream that arrives in arbitrary chunks into 16-bit PCM.
+ * Decodes an Ogg Opus stream that arrives in arbitrary chunks into 16-bit or float PCM.
  *
  * Chunks do not need to line up with Ogg pages or Opus packets. The decoder drops the
  * stream's pre-skip samples, trims the end as the final page directs, applies the header
@@ -11,8 +11,11 @@ package io.github.adrcotfas.koggopus
  * completes, which is the simplest. [push] and [read] separate the two steps, so the
  * caller decides how much audio is decoded at a time; use them when the stream is not
  * trusted, or to decode straight into a playback buffer. Either way the audio comes as
- * samples in a `ShortArray` or, with [feedBytes] and the `ByteArray` form of [read], as
- * little-endian bytes.
+ * samples in a `ShortArray`, with [feedBytes] and the `ByteArray` form of [read] as
+ * little-endian bytes, or with [feedFloat] and the `FloatArray` form of [read] as floats.
+ *
+ * The first call that returns audio fixes the sample format. A later call for the other
+ * format throws [OggOpusException]. The two 16-bit forms can be mixed.
  *
  * Calls on one instance are serialised, so [close] may be called from another thread
  * while another call is in progress.
@@ -61,6 +64,17 @@ public class OggOpusDecoder(public val sampleRate: Int = 48000, channels: Int? =
     }
 
     /**
+     * Like [feed], but returns float samples, nominally from -1 to 1. They are not clipped,
+     * so loud streams can exceed that range: limit them before output to a device that clips.
+     * A call that would return more than 2^29 samples throws [OggOpusException] and discards
+     * that audio.
+     */
+    public fun feedFloat(bytes: ByteArray, offset: Int = 0, length: Int = bytes.size - offset): FloatArray {
+        checkRange(bytes.size, offset, length, 1)
+        return lock.withLock { open().feedFloat(bytes, offset, length) }
+    }
+
+    /**
      * Queues the next bytes of the stream without decoding them. Follow it with [read]
      * until that returns 0; the bytes stay in memory until then.
      */
@@ -97,6 +111,18 @@ public class OggOpusDecoder(public val sampleRate: Int = 48000, channels: Int? =
         checkRange(pcm16le.size, offset, length, 1)
         require(length >= 4) { "length must be at least 4" }
         return lock.withLock { open().readBytes(pcm16le, offset, length) }
+    }
+
+    /**
+     * Like [read], but writes float samples, nominally from -1 to 1. They are not clipped, so
+     * loud streams can exceed that range: limit them before output to a device that clips.
+     *
+     * @param length room in [pcm], at least 2 samples. Only whole frames are written.
+     */
+    public fun read(pcm: FloatArray, offset: Int = 0, length: Int = pcm.size - offset): Int {
+        checkRange(pcm.size, offset, length, 1)
+        require(length >= 2) { "length must be at least 2" }
+        return lock.withLock { open().read(pcm, offset, length) }
     }
 
     /**

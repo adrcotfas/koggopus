@@ -172,6 +172,89 @@ class OggOpusTest {
     }
 
     @Test
+    fun floatOutputMatchesShortOutputWhenNothingClips() {
+        val stream = encode(sine(rate = 48000, seconds = 0.5, channels = 2), rate = 48000, channels = 2)
+        val shorts = decode(stream, rate = 48000)
+        val floats = OggOpusDecoder(48000).use { it.feedFloat(stream) }
+
+        assertEquals(shorts.size, floats.size)
+        for (i in shorts.indices) assertEquals(shorts[i] / 32768f, floats[i], 2 / 32768f)
+    }
+
+    @Test
+    fun pushAndReadProduceTheSameFloatsAsFeed() {
+        val stream = encode(sine(rate = 48000, seconds = 1.0, channels = 2), rate = 48000, channels = 2)
+        val expected = OggOpusDecoder(48000).use { it.feedFloat(stream) }
+
+        OggOpusDecoder(48000).use { decoder ->
+            val buffer = FloatArray(1 + 999) // an offset, and room for a part of a frame
+            var actual = FloatArray(0)
+            for (chunk in stream.asList().chunked(1000)) {
+                decoder.push(chunk.toByteArray())
+                while (true) {
+                    val count = decoder.read(buffer, offset = 1)
+                    if (count == 0) break
+                    assertEquals(0, count % 2)
+                    actual += buffer.copyOfRange(1, 1 + count)
+                }
+            }
+            assertContentEquals(expected, actual)
+        }
+    }
+
+    @Test
+    fun floatInputRoundTrips() {
+        val pcm = sine(rate = 16000, seconds = 1.0)
+        val floats = FloatArray(pcm.size) { pcm[it] / 32768f }
+        val stream = OggOpusEncoder(16000).use { it.write(floats) + it.finish() }
+        val decoded = decode(stream, rate = 16000)
+
+        assertEquals(pcm.size, decoded.size)
+        assertTrue(correlation(pcm, decoded) > 0.9)
+    }
+
+    @Test
+    fun floatsKeepThePeaksThatShortsClip() {
+        val loud = FloatArray(48000) { (sin(2 * PI * 440 * it / 48000) * 1.5).toFloat() }
+        val stream = OggOpusEncoder(48000, bitrate = 128000).use { it.write(loud) + it.finish() }
+
+        val floats = OggOpusDecoder(48000).use { it.feedFloat(stream) }
+        assertEquals(loud.size, floats.size)
+        assertTrue(floats.max() > 1.2f, "peak ${floats.max()}")
+    }
+
+    @Test
+    fun nonFiniteFloatInputDoesNotBreakTheStream() {
+        val bad = FloatArray(16000) { if (it % 100 == 0) Float.NaN else if (it % 100 == 50) Float.POSITIVE_INFINITY else 0.1f }
+        val good = sine(rate = 16000, seconds = 1.0)
+        val stream = OggOpusEncoder(16000).use { it.write(bad) + it.write(good) + it.finish() }
+
+        val decoded = decode(stream, rate = 16000)
+        assertEquals(bad.size + good.size, decoded.size)
+        // The encoder recovers: the audio after the bad input is intact.
+        val tail = decoded.copyOfRange(bad.size + 4000, decoded.size)
+        assertTrue(correlation(good.copyOfRange(4000, good.size), tail) > 0.9)
+    }
+
+    @Test
+    fun aDecoderKeepsTheSampleFormatOfItsFirstCall() {
+        val stream = encode(sine(rate = 16000, seconds = 0.2), rate = 16000)
+        OggOpusDecoder(16000).use { decoder ->
+            val floats = decoder.feedFloat(stream.copyOf(stream.size / 2))
+            assertTrue(floats.isNotEmpty())
+            assertEquals(-106, assertFailsWith<OggOpusException> { decoder.feed(ByteArray(0)) }.code)
+            assertEquals(-106, assertFailsWith<OggOpusException> { decoder.read(ByteArray(4)) }.code)
+            // The refused calls lost nothing.
+            val rest = decoder.feedFloat(stream, stream.size / 2)
+            assertEquals(3200, floats.size + rest.size)
+        }
+        OggOpusDecoder(16000).use { decoder ->
+            assertEquals(3200, decoder.feed(stream).size)
+            assertEquals(-106, assertFailsWith<OggOpusException> { decoder.read(FloatArray(4)) }.code)
+        }
+    }
+
+    @Test
     fun outputLayoutStaysTheSameAcrossChainedStreams() {
         val mono = sine(rate = 16000, seconds = 0.5)
         val stereo = sine(rate = 16000, seconds = 0.25, channels = 2)
@@ -317,6 +400,7 @@ class OggOpusTest {
 
         val encoder = OggOpusEncoder(16000, channels = 2)
         assertFailsWith<IllegalArgumentException> { encoder.write(ShortArray(3)) }
+        assertFailsWith<IllegalArgumentException> { encoder.write(FloatArray(3)) }
         encoder.finish()
         assertFailsWith<OggOpusException> { encoder.write(ShortArray(4)) }
         encoder.close()
@@ -324,9 +408,11 @@ class OggOpusTest {
         assertFailsWith<IllegalStateException> { encoder.write(ShortArray(4)) }
 
         val decoder = OggOpusDecoder()
+        assertFailsWith<IllegalArgumentException> { decoder.read(FloatArray(1)) }
         decoder.close()
         decoder.close()
         assertFailsWith<IllegalStateException> { decoder.feed(ByteArray(1)) }
+        assertFailsWith<IllegalStateException> { decoder.feedFloat(ByteArray(1)) }
     }
 }
 

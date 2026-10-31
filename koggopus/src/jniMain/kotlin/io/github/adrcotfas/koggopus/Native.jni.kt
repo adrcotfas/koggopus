@@ -74,6 +74,7 @@ internal object Jni {
 
     external fun encoderHeaders(handle: Long): ByteArray
     external fun encoderWrite(handle: Long, pcm: ShortArray, offset: Int, frames: Int): ByteArray
+    external fun encoderWriteFloat(handle: Long, pcm: FloatArray, offset: Int, frames: Int): ByteArray
     external fun encoderFinish(handle: Long): ByteArray
     external fun encoderDestroy(handle: Long)
 
@@ -83,6 +84,8 @@ internal object Jni {
     external fun decoderPush(handle: Long, data: ByteArray, offset: Int, length: Int)
     external fun decoderRead(handle: Long, pcm: ShortArray, offset: Int, length: Int): Int
     external fun decoderReadBytes(handle: Long, pcm: ByteArray, offset: Int, length: Int): Int
+    external fun decoderFeedFloat(handle: Long, data: ByteArray, offset: Int, length: Int): FloatArray
+    external fun decoderReadFloat(handle: Long, pcm: FloatArray, offset: Int, length: Int): Int
     external fun decoderChannels(handle: Long): Int
     external fun decoderHead(handle: Long): IntArray?
     external fun decoderTags(handle: Long): ByteArray?
@@ -93,6 +96,7 @@ internal object Jni {
 private class JniEncoder(private val handle: Long) : NativeEncoder {
     override fun headers() = Jni.encoderHeaders(handle)
     override fun write(pcm: ShortArray, offset: Int, frames: Int) = Jni.encoderWrite(handle, pcm, offset, frames)
+    override fun write(pcm: FloatArray, offset: Int, frames: Int) = Jni.encoderWriteFloat(handle, pcm, offset, frames)
     override fun finish() = Jni.encoderFinish(handle)
     override fun destroy() = Jni.encoderDestroy(handle)
 }
@@ -103,6 +107,8 @@ private class JniDecoder(private val handle: Long) : NativeDecoder {
     override fun read(pcm: ShortArray, offset: Int, length: Int) = Jni.decoderRead(handle, pcm, offset, length)
     override fun feedBytes(data: ByteArray, offset: Int, length: Int) = Jni.decoderFeedBytes(handle, data, offset, length)
     override fun readBytes(pcm: ByteArray, offset: Int, length: Int) = Jni.decoderReadBytes(handle, pcm, offset, length)
+    override fun feedFloat(data: ByteArray, offset: Int, length: Int) = Jni.decoderFeedFloat(handle, data, offset, length)
+    override fun read(pcm: FloatArray, offset: Int, length: Int) = Jni.decoderReadFloat(handle, pcm, offset, length)
     override fun channels() = Jni.decoderChannels(handle)
     override fun head() = Jni.decoderHead(handle)
     override fun tags() = Jni.decoderTags(handle)

@@ -83,6 +83,27 @@ static decoded decode_read(const unsigned char *data, size_t len, size_t max_chu
     return d;
 }
 
+/* The sample count through the float API, read in a buffer of random size. */
+static size_t decode_float(const unsigned char *data, size_t len) {
+    int error;
+    kogg_decoder *dec = kogg_decoder_create(48000, 0, &error);
+    assert(dec);
+    float pcm[700];
+    size_t capacity = 2 + rng() % (sizeof(pcm) / sizeof(pcm[0]) - 1);
+    size_t total = 0;
+    kogg_decoder_push(dec, data, len);
+    for (;;) {
+        size_t samples;
+        int status = kogg_decoder_read_float(dec, pcm, capacity, &samples);
+        assert(samples <= capacity);
+        assert(status == KOGG_OK || samples == 0);
+        total += samples;
+        if (status == KOGG_OK && samples == 0) break;
+    }
+    kogg_decoder_destroy(dec);
+    return total;
+}
+
 /*
  * The oracle: one input must decode to the same audio in one piece, in chunks, and through
  * the pull API. Returns the number of samples.
@@ -95,6 +116,12 @@ static size_t decode_checked(const unsigned char *data, size_t len, size_t max_c
         whole.samples != read.samples || whole.hash != read.hash) {
         fprintf(stderr, "decodes differ: whole %zu, chunked feed %zu, push/read %zu samples\n",
                 whole.samples, fed.samples, read.samples);
+        abort();
+    }
+    /* Float samples differ from 16-bit ones, but there must be just as many. */
+    size_t floats = decode_float(data, len);
+    if (floats != whole.samples) {
+        fprintf(stderr, "float decode: %zu samples, 16-bit decode: %zu\n", floats, whole.samples);
         abort();
     }
     return whole.samples;
